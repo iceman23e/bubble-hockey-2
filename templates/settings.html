@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Game Settings</title>
+</head>
+<body>
+    <h1>Game Settings</h1>
+    <form method="post">
+        <label for="period_length">Period Length (seconds):</label>
+        <input type="number" name="period_length" value="{{ settings['period_length'] }}"><br>
+
+        <label for="overtime_length">Overtime Length (seconds):</label>
+        <input type="number" name="overtime_length" value="{{ settings['overtime_length'] }}"><br>
+
+        <label for="intermission_length">Intermission Length (seconds):</label>
+        <input type="number" name="intermission_length" value="{{ settings['intermission_length'] }}"><br>
+
+        <label for="power_up_frequency">Power-Up Frequency (seconds):</label>
+        <input type="number" name="power_up_frequency" value="{{ settings['power_up_frequency'] }}"><br>
+
+        <label for="taunt_frequency">Taunt Frequency (seconds):</label>
+        <input type="number" name="taunt_frequency" value="{{ settings['taunt_frequency'] }}"><br>
+
+        <input type="submit" value="Save">
+    </form>
+    <p><a href="{{ url_for('system_settings') }}">System Settings</a></p>
+</body>
+</html>
