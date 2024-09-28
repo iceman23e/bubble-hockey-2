@@ -1,0 +1,29 @@
+<!-- templates/game.html -->
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Current Game</title>
+    <script>
+        function fetchGameData() {
+            fetch('/game_data')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('score').innerText = data.score.red + ' - ' + data.score.blue;
+                    document.getElementById('period').innerText = 'Period: ' + data.period;
+                    document.getElementById('time_remaining').innerText = 'Time Remaining: ' + Math.floor(data.time_remaining) + 's';
+                    // Update other elements as needed
+                });
+        }
+
+        setInterval(fetchGameData, 1000); // Refresh every second
+    </script>
+</head>
+<body onload="fetchGameData()">
+    <h1>Current Game</h1>
+    <p id="score">Score: - </p>
+    <p id="period">Period: - </p>
+    <p id="time_remaining">Time Remaining: - </p>
+    <!-- Include other game stats -->
+</body>
+</html>
