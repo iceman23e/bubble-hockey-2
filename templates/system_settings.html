@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>System Settings</title>
+</head>
+<body>
+    <h1>System Settings</h1>
+    <form method="post">
+        <label for="screen_width">Screen Width:</label>
+        <input type="number" name="screen_width" value="{{ settings['screen_width'] }}"><br>
+
+        <label for="screen_height">Screen Height:</label>
+        <input type="number" name="screen_height" value="{{ settings['screen_height'] }}"><br>
+
+        <label for="bg_color">Background Color (R,G,B):</label>
+        <input type="text" name="bg_color" value="{{ settings['bg_color'] }}"><br>
+
+        <label for="mqtt_broker">MQTT Broker:</label>
+        <input type="text" name="mqtt_broker" value="{{ settings['mqtt_broker'] }}"><br>
+
+        <label for="mqtt_port">MQTT Port:</label>
+        <input type="number" name="mqtt_port" value="{{ settings['mqtt_port'] }}"><br>
+
+        <label for="mqtt_topic">MQTT Topic:</label>
+        <input type="text" name="mqtt_topic" value="{{ settings['mqtt_topic'] }}"><br>
+
+        <label for="web_server_port">Web Server Port:</label>
+        <input type="number" name="web_server_port" value="{{ settings['web_server_port'] }}"><br>
+
+        <input type="submit" value="Save">
+    </form>
+    <p><a href="{{ url_for('settings') }}">Game Settings</a></p>
+</body>
+</html>
