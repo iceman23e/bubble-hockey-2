@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Theme Manager</title>
+</head>
+<body>
+    <h1>Theme Manager</h1>
+    <h2>Create a New Theme</h2>
+    <form method="post" enctype="multipart/form-data">
+        <label for="theme_name">Theme Name:</label>
+        <input type="text" name="theme_name" required><br>
+
+        <h3>Upload Images</h3>
+        <label for="image_background">Background Image:</label>
+        <input type="file" name="image_background" accept="image/*"><br>
+
+        <!-- Repeat for other required images -->
+
+        <h3>Upload Sounds</h3>
+        <label for="sound_button_click">Button Click Sound:</label>
+        <input type="file" name="sound_button_click" accept="audio/*"><br>
+
+        <!-- Repeat for other required sounds -->
+
+        <h3>Upload Fonts</h3>
+        <label for="font_custom">Custom Font:</label>
+        <input type="file" name="font_custom" accept=".ttf"><br>
+
+        <input type="submit" value="Create Theme">
+    </form>
+
+    <h2>Available Themes</h2>
+    <form method="post">
+        <label for="selected_theme">Select Theme:</label>
+        <select name="selected_theme">
+            {% for theme in themes %}
+                <option value="{{ theme }}" {% if theme == current_theme %}selected{% endif %}>{{ theme }}</option>
+            {% endfor %}
+        </select>
+        <input type="submit" value="Apply Theme">
+    </form>
+</body>
+</html>
