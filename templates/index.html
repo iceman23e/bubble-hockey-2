@@ -4,13 +4,70 @@
 <html>
 <head>
     <title>Boiling Point Bubble Hockey</title>
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #0d0d0d;
+            color: #ffffff;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            text-align: center;
+            padding-top: 50px;
+        }
+        h1 {
+            font-size: 48px;
+            color: #ff4500;
+            text-shadow: 2px 2px #000;
+        }
+        .menu {
+            margin-top: 50px;
+        }
+        .menu a {
+            display: inline-block;
+            margin: 20px;
+            padding: 20px 40px;
+            background-color: #ff4500;
+            color: #ffffff;
+            text-decoration: none;
+            font-size: 24px;
+            border-radius: 10px;
+            box-shadow: 0 4px #cc3700;
+            transition: all 0.2s;
+        }
+        .menu a:hover {
+            background-color: #ff5733;
+            box-shadow: 0 4px #cc3700;
+            transform: translateY(-2px);
+        }
+        .menu a:active {
+            box-shadow: none;
+            transform: translateY(4px);
+        }
+        footer {
+            position: fixed;
+            bottom: 10px;
+            width: 100%;
+            text-align: center;
+            color: #666666;
+            font-size: 14px;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    </style>
 </head>
 <body>
-    <h1>Boiling Point Bubble Hockey</h1>
-    <ul>
-        <li><a href="{{ url_for('game') }}">Current Game</a></li>
-        <li><a href="{{ url_for('settings') }}">Settings</a></li>
-        <li><a href="{{ url_for('theme_manager') }}">Themes</a></li>
-    </ul>
+    <div class="container">
+        <h1>Boiling Point Bubble Hockey</h1>
+        <div class="menu">
+            <a href="/game">Game Stats</a>
+            <a href="/settings">Settings</a>
+            <a href="/system_settings">System Settings</a>
+            <a href="/themes">Theme Manager</a>
+        </div>
+    </div>
+    <footer>
+        &copy; 2023 Bedwards Productions
+    </footer>
 </body>
 </html>
