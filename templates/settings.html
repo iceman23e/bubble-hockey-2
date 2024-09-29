@@ -1,28 +1,78 @@
+<!-- templates/settings.html -->
+
 <!DOCTYPE html>
 <html>
 <head>
     <title>Game Settings</title>
+    <style>
+        /* Add your styles here to enhance the page */
+        body { font-family: Arial, sans-serif; background-color: #1a1a1a; color: #fff; }
+        .container { width: 80%; margin: 0 auto; }
+        h1 { text-align: center; }
+        form { margin-top: 20px; }
+        label { display: block; margin-top: 10px; }
+        input[type="text"], input[type="number"], select { width: 100%; padding: 5px; }
+        button { padding: 10px 20px; margin-top: 20px; }
+        .checkbox { display: inline-block; margin-right: 10px; }
+    </style>
 </head>
 <body>
-    <h1>Game Settings</h1>
-    <form method="post">
-        <label for="period_length">Period Length (seconds):</label>
-        <input type="number" name="period_length" value="{{ settings['period_length'] }}"><br>
+    <div class="container">
+        <h1>Game Settings</h1>
+        <form method="POST">
+            <!-- Game Settings -->
+            <h3>Game Durations</h3>
+            <label for="period_length">Period Length (seconds):</label>
+            <input type="number" name="period_length" value="{{ settings['period_length'] }}">
 
-        <label for="overtime_length">Overtime Length (seconds):</label>
-        <input type="number" name="overtime_length" value="{{ settings['overtime_length'] }}"><br>
+            <label for="overtime_length">Overtime Length (seconds):</label>
+            <input type="number" name="overtime_length" value="{{ settings['overtime_length'] }}">
 
-        <label for="intermission_length">Intermission Length (seconds):</label>
-        <input type="number" name="intermission_length" value="{{ settings['intermission_length'] }}"><br>
+            <label for="intermission_length">Intermission Length (seconds):</label>
+            <input type="number" name="intermission_length" value="{{ settings['intermission_length'] }}">
 
-        <label for="power_up_frequency">Power-Up Frequency (seconds):</label>
-        <input type="number" name="power_up_frequency" value="{{ settings['power_up_frequency'] }}"><br>
+            <!-- Power-Up Settings -->
+            <h3>Power-Up Settings</h3>
+            <label for="power_up_frequency">Power-Up Frequency (seconds):</label>
+            <input type="number" name="power_up_frequency" value="{{ settings['power_up_frequency'] }}">
 
-        <label for="taunt_frequency">Taunt Frequency (seconds):</label>
-        <input type="number" name="taunt_frequency" value="{{ settings['taunt_frequency'] }}"><br>
+            <!-- Taunt Settings -->
+            <h3>Taunt Settings</h3>
+            <div class="checkbox">
+                <input type="checkbox" name="taunts_enabled" {% if settings['taunts_enabled'] %}checked{% endif %}>
+                <label for="taunts_enabled">Enable Taunts</label>
+            </div>
 
-        <input type="submit" value="Save">
-    </form>
-    <p><a href="{{ url_for('system_settings') }}">System Settings</a></p>
+            <!-- Random Sounds -->
+            <h3>Random Sounds</h3>
+            <div class="checkbox">
+                <input type="checkbox" name="random_sounds_enabled" {% if settings['random_sounds_enabled'] %}checked{% endif %}>
+                <label for="random_sounds_enabled">Enable Random Sounds</label>
+            </div>
+            <label for="random_sound_frequency">Random Sound Frequency (seconds):</label>
+            <input type="number" name="random_sound_frequency" value="{{ settings['random_sound_frequency'] }}">
+
+            <!-- Combo Goals -->
+            <h3>Combo Goals</h3>
+            <div class="checkbox">
+                <input type="checkbox" name="combo_goals_enabled" {% if settings['combo_goals_enabled'] %}checked{% endif %}>
+                <label for="combo_goals_enabled">Enable Combo Goals</label>
+            </div>
+            <label for="combo_time_window">Combo Time Window (seconds):</label>
+            <input type="number" name="combo_time_window" value="{{ settings['combo_time_window'] }}">
+
+            <label for="combo_reward_type">Combo Reward Type:</label>
+            <select name="combo_reward_type">
+                <option value="extra_point" {% if settings['combo_reward_type'] == 'extra_point' %}selected{% endif %}>Extra Point</option>
+                <option value="power_up" {% if settings['combo_reward_type'] == 'power_up' %}selected{% endif %}>Power-Up</option>
+            </select>
+
+            <label for="combo_max_stack">Combo Maximum Stack:</label>
+            <input type="number" name="combo_max_stack" value="{{ settings['combo_max_stack'] }}">
+
+            <!-- Submit Button -->
+            <button type="submit">Save Settings</button>
+        </form>
+    </div>
 </body>
 </html>
