@@ -4,6 +4,7 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify
 import threading
 import logging
 import os
+import json
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -25,8 +26,7 @@ def index():
 @app.route('/game')
 def game():
     # Fetch current game status
-    stats = game_instance.get_game_status()
-    return render_template('game.html', stats=stats)
+    return render_template('game.html')
 
 @app.route('/game_data')
 def game_data():
@@ -38,10 +38,19 @@ def game_data():
 def settings():
     if request.method == 'POST':
         # Update game settings
-        for key in ['period_length', 'overtime_length', 'intermission_length', 'power_up_frequency', 'taunt_frequency']:
+        for key in [
+            'period_length', 'overtime_length', 'intermission_length',
+            'power_up_frequency', 'taunt_frequency',
+            'taunts_enabled', 'random_sounds_enabled', 'random_sound_frequency',
+            'combo_goals_enabled', 'combo_time_window', 'combo_reward_type', 'combo_max_stack'
+        ]:
             value = request.form.get(key)
             if value is not None and hasattr(game_settings, key):
-                setattr(game_settings, key, type(getattr(game_settings, key))(value))
+                attr_type = type(getattr(game_settings, key))
+                if attr_type is bool:
+                    setattr(game_settings, key, value == 'on')
+                else:
+                    setattr(game_settings, key, attr_type(value))
         game_settings.save_settings()
         logging.info('Game settings updated via web interface')
         return redirect(url_for('settings'))
@@ -74,17 +83,27 @@ def theme_manager():
             os.makedirs(os.path.join(theme_path, 'images'), exist_ok=True)
             os.makedirs(os.path.join(theme_path, 'sounds'), exist_ok=True)
             os.makedirs(os.path.join(theme_path, 'fonts'), exist_ok=True)
-            # Save uploaded files
+            # Save uploaded files and update theme configuration
+            theme_config = {'name': theme_name, 'assets': {}}
             for file_field in request.files:
                 file = request.files[file_field]
                 if file and allowed_file(file.filename):
                     filename = secure_filename(file.filename)
                     if file_field.startswith('image_'):
                         file.save(os.path.join(theme_path, 'images', filename))
+                        asset_name = file_field.replace('image_', '')
+                        theme_config['assets'][asset_name] = f'images/{filename}'
                     elif file_field.startswith('sound_'):
                         file.save(os.path.join(theme_path, 'sounds', filename))
+                        asset_name = file_field.replace('sound_', '')
+                        theme_config['assets'][asset_name] = f'sounds/{filename}'
                     elif file_field.startswith('font_'):
                         file.save(os.path.join(theme_path, 'fonts', filename))
+                        asset_name = file_field.replace('font_', '')
+                        theme_config['assets'][asset_name] = f'fonts/{filename}'
+            # Save theme configuration
+            with open(os.path.join(theme_path, 'theme.json'), 'w') as f:
+                json.dump(theme_config, f, indent=4)
             logging.info(f'Theme {theme_name} created via web interface')
             return redirect(url_for('theme_manager'))
         elif 'selected_theme' in request.form:
