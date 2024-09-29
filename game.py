@@ -31,6 +31,7 @@ class Game:
         self.check_for_updates()  # Check for updates on game start
 
     def load_assets(self):
+        """Load all necessary assets for the game."""
         # Load theme configuration
         theme_path = f'assets/themes/{self.settings.current_theme}'
         theme_config_path = os.path.join(theme_path, 'theme.json')
@@ -47,24 +48,66 @@ class Game:
         # Load images
         self.taunt_button_image = self.load_theme_image('taunt_button', 'assets/images/taunt_button.png')
         self.power_up_icon_image = self.load_theme_image('power_up_icon', 'assets/images/power_up_icon.png')
-        # Other images...
+        # Load other images as needed
 
         # Load sounds
         self.sounds = {
             'taunts': self.load_theme_sounds('taunts', 'assets/sounds/taunts', 5),
             'random_sounds': self.load_theme_sounds('random_sounds', 'assets/sounds/random_sounds', 5),
-            # Other sounds...
+            # Load other sounds as needed
         }
 
-    # ... (Other methods remain unchanged) ...
-
-    def check_for_updates(self):
-        """Check if an update is available by looking for the flag file."""
-        if os.path.exists('update_available.flag'):
-            self.update_available = True
-            logging.info('Update available.')
+    def load_theme_font(self, key, default_path, size):
+        """Load a font from the theme, or use the default if not specified."""
+        if key in self.theme_data.get('assets', {}):
+            font_path = os.path.join('assets/themes', self.settings.current_theme, self.theme_data['assets'][key])
         else:
-            self.update_available = False
+            font_path = default_path
+        try:
+            font = pygame.font.Font(font_path, size)
+            return font
+        except Exception as e:
+            logging.error(f'Failed to load font {font_path}: {e}')
+            return pygame.font.SysFont(None, size)
+
+    def load_theme_image(self, key, default_path):
+        """Load an image from the theme, or use the default if not specified."""
+        if key in self.theme_data.get('assets', {}):
+            image_path = os.path.join('assets/themes', self.settings.current_theme, self.theme_data['assets'][key])
+        else:
+            image_path = default_path
+        return load_image(image_path)
+
+    def load_theme_sounds(self, key, default_path, count):
+        """Load sounds from the theme, or use the default if not specified."""
+        sounds = []
+        theme_assets = self.theme_data.get('assets', {})
+        if key in theme_assets:
+            sound_dir = os.path.join('assets/themes', self.settings.current_theme, theme_assets[key])
+        else:
+            sound_dir = default_path
+        for i in range(1, count + 1):
+            sound_path = os.path.join(sound_dir, f'{key}_{i}.wav')
+            sound = load_sound(sound_path)
+            if sound:
+                sounds.append(sound)
+        return sounds
+
+    def set_mode(self, mode):
+        """Set the game mode and initialize the corresponding gameplay class."""
+        self.mode = mode
+        self.is_over = False
+        if mode == 'classic':
+            self.gameplay = ClassicMode(self)
+        elif mode == 'evolved':
+            self.gameplay = EvolvedMode(self)
+        elif mode == 'crazy_play':
+            self.gameplay = CrazyPlayMode(self)
+        else:
+            logging.error(f'Unknown game mode: {mode}')
+            return
+        # Record game start in the database
+        self.current_game_id = self.db.start_new_game(self.mode)
 
     def handle_event(self, event):
         """Handle events for the game."""
@@ -78,12 +121,28 @@ class Game:
                 if self.update_notification_rect and self.update_notification_rect.collidepoint(pos):
                     self.initiate_update()
 
+    def update(self):
+        """Update the game state."""
+        self.gameplay.update()
+        if self.gameplay.is_over:
+            self.is_over = True
+            # Record game end in database
+            self.db.end_game(self.current_game_id, self.gameplay.score)
+
     def draw(self):
         """Draw the game screen."""
         self.gameplay.draw(self.screen)
         # If an update is available, display the notification
         if self.update_available:
             self.display_update_notification()
+
+    def check_for_updates(self):
+        """Check if an update is available by looking for the flag file."""
+        if os.path.exists('update_available.flag'):
+            self.update_available = True
+            logging.info('Update available.')
+        else:
+            self.update_available = False
 
     def display_update_notification(self):
         """Display an update notification on the game screen."""
@@ -130,4 +189,228 @@ class Game:
         pygame.quit()
         os.execv(sys.executable, ['python3'] + sys.argv)
 
-    # ... (Other methods remain unchanged) ...
+    def cleanup(self):
+        """Cleanup resources."""
+        self.db.close()
+
+    def get_game_status(self):
+        """Return current game status for web display."""
+        status = {
+            'score': self.gameplay.score,
+            'period': self.gameplay.period,
+            'max_periods': self.gameplay.max_periods,
+            'clock': self.gameplay.clock,
+            'active_event': getattr(self.gameplay, 'active_event', None)
+        }
+        return status
+
+# Game Mode Classes
+
+class BaseGameMode:
+    """Base class for game modes."""
+    def __init__(self, game):
+        self.game = game
+        self.screen = game.screen
+        self.settings = game.settings
+        self.score = {'red': 0, 'blue': 0}
+        self.period = 1
+        self.max_periods = 3
+        self.clock = self.settings.period_length
+        self.is_over = False
+        self.last_goal_time = None
+        self.combo_count = 0
+        self.power_up_active = False
+        self.power_up_end_time = None
+
+    def handle_event(self, event):
+        """Handle events specific to the game mode."""
+        pass  # To be implemented in subclasses
+
+    def update(self):
+        """Update the game mode state."""
+        # Update the game clock
+        dt = self.game.clock.tick(60) / 1000.0  # Delta time in seconds
+        self.clock -= dt
+        if self.clock <= 0:
+            self.end_period()
+
+    def draw(self, screen):
+        """Draw the game mode elements on the screen."""
+        # Clear the screen
+        screen.fill(self.settings.bg_color)
+        # Draw the scores
+        score_text = self.game.font_large.render(f"Red: {self.score['red']}  Blue: {self.score['blue']}", True, (255, 255, 255))
+        score_rect = score_text.get_rect(center=(self.settings.screen_width // 2, 50))
+        screen.blit(score_text, score_rect)
+        # Draw the period and time remaining
+        period_text = self.game.font_small.render(f"Period: {self.period}/{self.max_periods}", True, (255, 255, 255))
+        period_rect = period_text.get_rect(center=(self.settings.screen_width // 2, 100))
+        screen.blit(period_text, period_rect)
+        clock_text = self.game.font_small.render(f"Time Remaining: {int(self.clock)}s", True, (255, 255, 255))
+        clock_rect = clock_text.get_rect(center=(self.settings.screen_width // 2, 130))
+        screen.blit(clock_text, clock_rect)
+        # Draw other game elements as needed
+
+    def end_period(self):
+        """Handle the end of a period."""
+        if self.period < self.max_periods:
+            self.period += 1
+            self.clock = self.settings.period_length
+            logging.info(f"Starting period {self.period}")
+        else:
+            self.is_over = True
+            logging.info("Game over")
+
+    def goal_scored(self, team):
+        """Handle a goal scored by a team."""
+        self.score[team] += 1
+        logging.info(f"Goal scored by {team} team")
+        # Handle combo goals
+        current_time = datetime.now()
+        if self.last_goal_time and (current_time - self.last_goal_time).total_seconds() <= self.settings.combo_time_window:
+            self.combo_count += 1
+            if self.combo_count <= self.settings.combo_max_stack:
+                logging.info(f"Combo count increased to {self.combo_count}")
+                # Apply combo reward
+                if self.settings.combo_reward_type == 'extra_point':
+                    self.score[team] += 1
+                    logging.info(f"Extra point awarded to {team} team")
+                elif self.settings.combo_reward_type == 'power_up':
+                    self.activate_power_up()
+        else:
+            self.combo_count = 1
+        self.last_goal_time = current_time
+
+    def activate_power_up(self):
+        """Activate a power-up."""
+        self.power_up_active = True
+        self.power_up_end_time = datetime.now() + timedelta(seconds=10)  # Power-up lasts 10 seconds
+        logging.info("Power-up activated")
+
+    def deactivate_power_up(self):
+        """Deactivate the power-up."""
+        self.power_up_active = False
+        self.power_up_end_time = None
+        logging.info("Power-up deactivated")
+
+class ClassicMode(BaseGameMode):
+    """Classic game mode with standard rules."""
+    def __init__(self, game):
+        super().__init__(game)
+        logging.info("Classic mode initialized")
+
+    def handle_event(self, event):
+        """Handle events specific to Classic mode."""
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_r:
+                self.goal_scored('red')
+            elif event.key == pygame.K_b:
+                self.goal_scored('blue')
+
+    def update(self):
+        """Update the game state."""
+        super().update()
+        # Handle power-up expiration
+        if self.power_up_active and datetime.now() >= self.power_up_end_time:
+            self.deactivate_power_up()
+
+    def draw(self, screen):
+        """Draw the game elements."""
+        super().draw(screen)
+        # Draw power-up status
+        if self.power_up_active:
+            power_up_text = self.game.font_small.render("Power-Up Active!", True, (255, 255, 0))
+            power_up_rect = power_up_text.get_rect(center=(self.settings.screen_width // 2, 160))
+            screen.blit(power_up_text, power_up_rect)
+
+class EvolvedMode(BaseGameMode):
+    """Evolved game mode with additional features."""
+    def __init__(self, game):
+        super().__init__(game)
+        logging.info("Evolved mode initialized")
+        # Initialize evolved mode features
+        self.taunt_timer = 0
+
+    def handle_event(self, event):
+        """Handle events specific to Evolved mode."""
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_r:
+                self.goal_scored('red')
+            elif event.key == pygame.K_b:
+                self.goal_scored('blue')
+            elif event.key == pygame.K_t and self.settings.taunts_enabled:
+                self.play_random_taunt()
+
+    def update(self):
+        """Update the game state."""
+        super().update()
+        # Handle taunt timing
+        self.taunt_timer += self.game.clock.get_time() / 1000.0
+        if self.taunt_timer >= self.settings.taunt_frequency:
+            self.play_random_taunt()
+            self.taunt_timer = 0
+
+    def draw(self, screen):
+        """Draw the game elements."""
+        super().draw(screen)
+        # Additional drawing for evolved mode if needed
+
+    def play_random_taunt(self):
+        """Play a random taunt sound."""
+        if self.sounds_enabled and self.sounds['taunts']:
+            taunt_sound = random.choice(self.sounds['taunts'])
+            taunt_sound.play()
+            logging.info("Taunt sound played")
+
+class CrazyPlayMode(BaseGameMode):
+    """Crazy Play mode with unpredictable elements."""
+    def __init__(self, game):
+        super().__init__(game)
+        logging.info("Crazy Play mode initialized")
+        # Initialize crazy play features
+        self.random_sound_timer = 0
+
+    def handle_event(self, event):
+        """Handle events specific to Crazy Play mode."""
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_r:
+                self.goal_scored('red')
+            elif event.key == pygame.K_b:
+                self.goal_scored('blue')
+
+    def update(self):
+        """Update the game state."""
+        super().update()
+        # Handle random sounds
+        if self.settings.random_sounds_enabled:
+            self.random_sound_timer += self.game.clock.get_time() / 1000.0
+            if self.random_sound_timer >= self.settings.random_sound_frequency:
+                self.play_random_sound()
+                self.random_sound_timer = 0
+        # Handle power-up expiration
+        if self.power_up_active and datetime.now() >= self.power_up_end_time:
+            self.deactivate_power_up()
+
+    def draw(self, screen):
+        """Draw the game elements."""
+        super().draw(screen)
+        # Additional drawing for crazy play mode if needed
+
+    def play_random_sound(self):
+        """Play a random sound."""
+        if self.sounds_enabled and self.sounds['random_sounds']:
+            random_sound = random.choice(self.sounds['random_sounds'])
+            random_sound.play()
+            logging.info("Random sound played")
+
+    def activate_power_up(self):
+        """Activate a power-up with crazy effects."""
+        super().activate_power_up()
+        # Implement crazy power-up effects
+        logging.info("Crazy power-up activated")
+
+    def deactivate_power_up(self):
+        """Deactivate the power-up."""
+        super().deactivate_power_up()
+        # Revert any crazy effects
+        logging.info("Crazy power-up deactivated")
