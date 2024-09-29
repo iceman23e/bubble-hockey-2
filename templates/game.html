@@ -3,27 +3,117 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Current Game</title>
+    <title>Live Game Stats - Boiling Point Bubble Hockey</title>
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #000000;
+            color: #ffffff;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        .container {
+            text-align: center;
+            padding-top: 20px;
+        }
+        .header {
+            font-size: 48px;
+            color: #ff4500;
+            text-shadow: 2px 2px #000;
+            margin-bottom: 20px;
+        }
+        .scoreboard {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 72px;
+            margin-bottom: 40px;
+        }
+        .team {
+            width: 300px;
+            margin: 0 50px;
+        }
+        .team-name {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+        .score {
+            font-size: 96px;
+        }
+        .game-info {
+            font-size: 36px;
+            margin-bottom: 30px;
+        }
+        .game-info div {
+            margin: 10px 0;
+        }
+        .footer {
+            position: fixed;
+            bottom: 10px;
+            width: 100%;
+            text-align: center;
+            color: #666666;
+            font-size: 24px;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">Boiling Point Bubble Hockey</div>
+        <div class="scoreboard">
+            <div class="team" id="team-red">
+                <div class="team-name">Red Team</div>
+                <div class="score" id="score-red">0</div>
+            </div>
+            <div class="team" id="team-blue">
+                <div class="team-name">Blue Team</div>
+                <div class="score" id="score-blue">0</div>
+            </div>
+        </div>
+        <div class="game-info">
+            <div id="period-info">Period: 1/3</div>
+            <div id="time-info">Time Left: 180s</div>
+            <!-- Display active power-ups or game events if applicable -->
+            <div id="event-info"></div>
+        </div>
+    </div>
+    <div class="footer">
+        &copy; 2023 Bedwards Productions
+    </div>
+
     <script>
-        function fetchGameData() {
+        // Function to update game stats
+        function updateGameStats() {
             fetch('/game_data')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('score').innerText = data.score.red + ' - ' + data.score.blue;
-                    document.getElementById('period').innerText = 'Period: ' + data.period;
-                    document.getElementById('time_remaining').innerText = 'Time Remaining: ' + Math.floor(data.time_remaining) + 's';
-                    // Update other elements as needed
-                });
+                    // Update scores
+                    document.getElementById('score-red').innerText = data.score.red;
+                    document.getElementById('score-blue').innerText = data.score.blue;
+
+                    // Update period info
+                    document.getElementById('period-info').innerText = `Period: ${data.period}/${data.max_periods}`;
+
+                    // Update time left
+                    document.getElementById('time-info').innerText = `Time Left: ${Math.ceil(data.clock)}s`;
+
+                    // Update event info if any
+                    if (data.active_event) {
+                        document.getElementById('event-info').innerText = data.active_event;
+                    } else {
+                        document.getElementById('event-info').innerText = '';
+                    }
+                })
+                .catch(error => console.error('Error fetching game data:', error));
         }
 
-        setInterval(fetchGameData, 1000); // Refresh every second
+        // Update stats every second
+        setInterval(updateGameStats, 1000);
+
+        // Initial update
+        updateGameStats();
     </script>
-</head>
-<body onload="fetchGameData()">
-    <h1>Current Game</h1>
-    <p id="score">Score: - </p>
-    <p id="period">Period: - </p>
-    <p id="time_remaining">Time Remaining: - </p>
-    <!-- Include other game stats -->
 </body>
 </html>
