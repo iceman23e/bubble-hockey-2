@@ -1,43 +1,74 @@
+<!-- templates/theme_manager.html -->
+
 <!DOCTYPE html>
 <html>
 <head>
     <title>Theme Manager</title>
+    <style>
+        /* Add your styles here to enhance the page */
+        body { font-family: Arial, sans-serif; background-color: #1a1a1a; color: #fff; }
+        .container { width: 80%; margin: 0 auto; }
+        h1 { text-align: center; }
+        .theme-list { margin: 20px 0; }
+        .theme-item { padding: 10px; background-color: #333; margin-bottom: 10px; }
+        .theme-item form { display: inline; }
+        .new-theme { margin-top: 40px; }
+        label { display: block; margin-top: 10px; }
+        input[type="text"], input[type="file"], select { width: 100%; padding: 5px; }
+        button { padding: 10px 20px; margin-top: 20px; }
+    </style>
 </head>
 <body>
-    <h1>Theme Manager</h1>
-    <h2>Create a New Theme</h2>
-    <form method="post" enctype="multipart/form-data">
-        <label for="theme_name">Theme Name:</label>
-        <input type="text" name="theme_name" required><br>
-
-        <h3>Upload Images</h3>
-        <label for="image_background">Background Image:</label>
-        <input type="file" name="image_background" accept="image/*"><br>
-
-        <!-- Repeat for other required images -->
-
-        <h3>Upload Sounds</h3>
-        <label for="sound_button_click">Button Click Sound:</label>
-        <input type="file" name="sound_button_click" accept="audio/*"><br>
-
-        <!-- Repeat for other required sounds -->
-
-        <h3>Upload Fonts</h3>
-        <label for="font_custom">Custom Font:</label>
-        <input type="file" name="font_custom" accept=".ttf"><br>
-
-        <input type="submit" value="Create Theme">
-    </form>
-
-    <h2>Available Themes</h2>
-    <form method="post">
-        <label for="selected_theme">Select Theme:</label>
-        <select name="selected_theme">
+    <div class="container">
+        <h1>Theme Manager</h1>
+        <h2>Current Theme: {{ current_theme }}</h2>
+        <div class="theme-list">
+            <h3>Available Themes</h3>
             {% for theme in themes %}
-                <option value="{{ theme }}" {% if theme == current_theme %}selected{% endif %}>{{ theme }}</option>
+                <div class="theme-item">
+                    <strong>{{ theme }}</strong>
+                    <form method="POST">
+                        <input type="hidden" name="selected_theme" value="{{ theme }}">
+                        <button type="submit">Activate</button>
+                    </form>
+                </div>
             {% endfor %}
-        </select>
-        <input type="submit" value="Apply Theme">
-    </form>
+        </div>
+
+        <div class="new-theme">
+            <h3>Create New Theme</h3>
+            <form method="POST" enctype="multipart/form-data">
+                <label for="theme_name">Theme Name:</label>
+                <input type="text" name="theme_name" required>
+
+                <!-- Asset Uploads -->
+                <h4>Images</h4>
+                <label for="image_taunt_button">Taunt Button Image:</label>
+                <input type="file" name="image_taunt_button" accept="image/*">
+
+                <label for="image_power_up_icon">Power-Up Icon Image:</label>
+                <input type="file" name="image_power_up_icon" accept="image/*">
+
+                <!-- Sounds -->
+                <h4>Sounds</h4>
+                {% for i in range(1,6) %}
+                    <label for="sound_taunts_{{i}}">Taunt Sound {{i}}:</label>
+                    <input type="file" name="sound_taunts_{{i}}" accept="audio/*">
+                {% endfor %}
+
+                {% for i in range(1,6) %}
+                    <label for="sound_random_sounds_{{i}}">Random Sound {{i}}:</label>
+                    <input type="file" name="sound_random_sounds_{{i}}" accept="audio/*">
+                {% endfor %}
+
+                <!-- Fonts -->
+                <h4>Fonts</h4>
+                <label for="font_small">Small Font:</label>
+                <input type="file" name="font_font_small" accept=".ttf">
+
+                <button type="submit">Create Theme</button>
+            </form>
+        </div>
+    </div>
 </body>
 </html>
