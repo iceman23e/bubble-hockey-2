@@ -3,70 +3,69 @@
 import pygame
 import sys
 from settings import Settings
-from web_server import run_web_server
-import threading
 from intro import Intro
 from menu import Menu
 from game import Game
 
 def main():
+    # Initialize Pygame
     pygame.init()
-    # Load settings
     settings = Settings()
-
-    # Set up the display
+    # Set up the display with the configured screen width and height
     screen = pygame.display.set_mode((settings.screen_width, settings.screen_height))
-    pygame.display.set_caption('Boiling Point Bubble Hockey')
+    pygame.display.set_caption("Boiling Point Bubble Hockey")
 
-    # Initialize modules
+    # Display the intro screen
     intro = Intro(screen, settings)
+    intro.run()  # Run the intro sequence
+
+    # Create instances of Menu and Game
     menu = Menu(screen, settings)
-    game = Game(screen, settings)
+    game = None  # Will be initialized when starting the game
 
-    # Start the web server in a separate thread
-    web_thread = threading.Thread(target=run_web_server, args=(settings, game))
-    web_thread.daemon = True
-    web_thread.start()
+    # Main loop control variables
+    running = True
+    in_menu = True  # Indicates whether we are in the menu or the game
 
-    # Main loop
-    clock = pygame.time.Clock()
-    state = 'intro'
-
-    while True:
+    while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                game.cleanup()
-                pygame.quit()
-                sys.exit()
+                running = False  # Exit the main loop
+
+            if in_menu:
+                # Pass events to the menu
+                menu.handle_event(event)
+                if menu.start_game:
+                    # User selected to start the game
+                    game = Game(screen, settings)
+                    game.set_mode(menu.selected_mode)  # Set the game mode based on menu selection
+                    in_menu = False  # Switch to game mode
+                    menu.start_game = False  # Reset the flag
             else:
-                if state == 'intro':
-                    intro.handle_event(event)
-                elif state == 'menu':
-                    menu.handle_event(event)
-                elif state == 'game':
-                    game.handle_event(event)
+                # Pass events to the game
+                game.handle_event(event)
+                if game.is_over:
+                    # Game is over, return to menu
+                    in_menu = True  # Switch back to menu
+                    menu.check_for_updates()  # Check for updates when returning to menu
 
-        if state == 'intro':
-            intro.update()
-            intro.draw()
-            if intro.is_finished:
-                state = 'menu'
-        elif state == 'menu':
-            menu.update()
-            menu.draw()
-            if menu.start_game:
-                # Set game mode based on menu selection
-                game.set_mode(menu.selected_mode)
-                state = 'game'
-        elif state == 'game':
-            game.update()
-            game.draw()
-            if game.is_over:
-                state = 'menu'
-                menu.reset()
+        if in_menu:
+            # Update and display the menu
+            menu.update()  # Update any animations or timers in the menu
+            menu.draw()    # Draw the menu elements on the screen
+        else:
+            # Update and draw the game
+            game.update()  # Update the game state
+            game.draw()    # Draw the game elements on the screen
 
+        # Update the display
         pygame.display.flip()
-        clock.tick(60)  # Limit to 60 FPS
 
-if __name__ == '__main__':
+    # Clean up and exit
+    if game:
+        game.cleanup()  # Perform any necessary cleanup
+    pygame.quit()
+    sys.exit()
+
+if __name__ == "__main__":
     main()
