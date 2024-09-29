@@ -4,7 +4,10 @@ to install:
 ```
 curl -sSL https://raw.githubusercontent.com/iceman23e/bubble_hockey_2/main/install.sh | bash
 ```
-
+Make updator executable:
+```
+chmod +x check_updates.sh
+```
 ```
 bubble_hockey/
 ├── assets/
