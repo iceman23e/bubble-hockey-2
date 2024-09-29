@@ -28,6 +28,15 @@ class Settings:
                 self.intermission_length = data.get('intermission_length', 60)
                 self.power_up_frequency = data.get('power_up_frequency', 30)
                 self.taunt_frequency = data.get('taunt_frequency', 60)
+                # New settings
+                self.taunts_enabled = data.get('taunts_enabled', True)
+                self.random_sounds_enabled = data.get('random_sounds_enabled', True)
+                self.random_sound_frequency = data.get('random_sound_frequency', 60)
+                # Combo goal settings
+                self.combo_goals_enabled = data.get('combo_goals_enabled', True)
+                self.combo_time_window = data.get('combo_time_window', 30)
+                self.combo_reward_type = data.get('combo_reward_type', 'extra_point')  # Options: 'extra_point', 'power_up'
+                self.combo_max_stack = data.get('combo_max_stack', 5)
                 # Theme settings
                 self.current_theme = data.get('current_theme', 'default')
         else:
@@ -44,6 +53,14 @@ class Settings:
             self.intermission_length = 60
             self.power_up_frequency = 30
             self.taunt_frequency = 60
+            # New settings
+            self.taunts_enabled = True
+            self.random_sounds_enabled = True
+            self.random_sound_frequency = 60
+            self.combo_goals_enabled = True
+            self.combo_time_window = 30
+            self.combo_reward_type = 'extra_point'
+            self.combo_max_stack = 5
             self.current_theme = 'default'
             # Save default settings
             self.save_settings()
@@ -65,6 +82,14 @@ class Settings:
             'intermission_length': self.intermission_length,
             'power_up_frequency': self.power_up_frequency,
             'taunt_frequency': self.taunt_frequency,
+            # New settings
+            'taunts_enabled': self.taunts_enabled,
+            'random_sounds_enabled': self.random_sounds_enabled,
+            'random_sound_frequency': self.random_sound_frequency,
+            'combo_goals_enabled': self.combo_goals_enabled,
+            'combo_time_window': self.combo_time_window,
+            'combo_reward_type': self.combo_reward_type,
+            'combo_max_stack': self.combo_max_stack,
             # Theme settings
             'current_theme': self.current_theme,
         }
