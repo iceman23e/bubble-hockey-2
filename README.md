@@ -1,5 +1,10 @@
 # bubble-hockey-2
 
+to install:
+```
+curl -sSL https://raw.githubusercontent.com/iceman23e/bubble_hockey_2/main/install.sh | bash
+```
+
 ```
 bubble_hockey/
 ├── assets/
