@@ -7,12 +7,12 @@ prompt() {
     local prompt_message="$1"
     local default_value="$2"
     local var_name="$3"
+
     read -e -p "$prompt_message [$default_value]: " input
     if [[ -z "$input" ]]; then
-        eval "$var_name=\"$default_value\""
-    else
-        eval "$var_name=\"$input\""
+        input="$default_value"
     fi
+    declare "$var_name=$input"
 }
 
 # Prompt for variables
