@@ -7,7 +7,7 @@ prompt() {
     local prompt_message="$1"
     local default_value="$2"
     local var_name="$3"
-    read -p "$prompt_message [$default_value]: " input
+    read -e -p "$prompt_message [$default_value]: " input
     if [[ -z "$input" ]]; then
         eval "$var_name=\"$default_value\""
     else
@@ -54,6 +54,12 @@ else
 fi
 
 cd "$PROJECT_DIR"
+
+# Check if requirements.txt exists before setting up the Python virtual environment
+if [ ! -f "requirements.txt" ]; then
+    echo "Error: requirements.txt not found in the project directory."
+    exit 1
+fi
 
 # Set up Python virtual environment
 echo "Setting up Python virtual environment..."
