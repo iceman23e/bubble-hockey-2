@@ -1,139 +1,126 @@
 #!/bin/bash
 
-# install.sh
+# Install script for Boiling Point Bubble Hockey
 
-# Set variables
-REPO_URL="https://github.com/iceman23e/bubble-hockey-2.git"
-PROJECT_DIR="/home/pi/bubble_hockey"
-SERVICE_NAME="bubble_hockey.service"
-USER="pi"
-PYTHON_VERSION="python3"
-
-# Function to display messages
-function echo_info() {
-    echo -e "\e[32m[INFO]\e[0m $1"
+# Function to prompt for input with a default value
+prompt() {
+    local prompt_message="$1"
+    local default_value="$2"
+    local var_name="$3"
+    read -p "$prompt_message [$default_value]: " input
+    export $var_name="${input:-$default_value}"
 }
 
-function echo_error() {
-    echo -e "\e[31m[ERROR]\e[0m $1"
-}
+# Prompt for variables
+echo "Welcome to the Boiling Point Bubble Hockey Installer!"
+echo "Please provide the following information or press Enter to accept the defaults."
 
-# Update and upgrade the system
-echo_info "Updating and upgrading the system..."
-sudo apt-get update -y && sudo apt-get upgrade -y
+prompt "Enter the project directory" "/home/pi/bubble_hockey" "PROJECT_DIR"
+prompt "Enter the service name" "bubble_hockey" "SERVICE_NAME"
+prompt "Enter the user to run the service as" "$USER" "RUN_USER"
+prompt "Enter the Git repository URL" "https://github.com/yourusername/bubble_hockey.git" "GIT_URL"
+prompt "Enter the Python version to use (e.g., python3)" "python3" "PYTHON_VERSION"
 
-# Install system dependencies
-echo_info "Installing system dependencies..."
-sudo apt-get install -y git $PYTHON_VERSION $PYTHON_VERSION-pip $PYTHON_VERSION-venv $PYTHON_VERSION-dev \
-                        libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
-                        libportmidi-dev libfreetype6-dev libavformat-dev libswscale-dev \
-                        libjpeg-dev libtiff5-dev libx11-dev libxext-dev samba samba-common-bin
+echo ""
+echo "Installing with the following settings:"
+echo "Project Directory: $PROJECT_DIR"
+echo "Service Name: $SERVICE_NAME"
+echo "Run User: $RUN_USER"
+echo "Git Repository URL: $GIT_URL"
+echo "Python Version: $PYTHON_VERSION"
+echo ""
 
-# Clone the GitHub repository
-if [ -d "$PROJECT_DIR" ]; then
-    echo_info "Project directory already exists. Pulling latest changes..."
+# Update system packages
+echo "Updating system packages..."
+sudo apt-get update
+sudo apt-get upgrade -y
+
+# Install required packages
+echo "Installing required packages..."
+sudo apt-get install -y git python3-pip python3-venv
+
+# Clone the repository
+echo "Cloning the repository..."
+if [ ! -d "$PROJECT_DIR" ]; then
+    git clone "$GIT_URL" "$PROJECT_DIR"
+else
+    echo "Project directory already exists. Pulling latest changes..."
     cd "$PROJECT_DIR"
     git pull
-else
-    echo_info "Cloning the repository from GitHub..."
-    git clone "$REPO_URL" "$PROJECT_DIR"
-    cd "$PROJECT_DIR"
 fi
 
-# Create project directory structure (if not already present)
-echo_info "Creating project directory structure..."
-mkdir -p assets/{fonts,images,sounds,themes}
-mkdir -p assets/images/{volcano_eruption_frames,lava_flow_frames}
-mkdir -p assets/themes/default/{images,sounds,fonts}
-mkdir -p database logs templates
+cd "$PROJECT_DIR"
 
 # Set up Python virtual environment
-echo_info "Setting up Python virtual environment..."
+echo "Setting up Python virtual environment..."
 $PYTHON_VERSION -m venv venv
 source venv/bin/activate
 
-# Upgrade pip
-echo_info "Upgrading pip..."
-pip install --upgrade pip
-
 # Install Python dependencies
-echo_info "Installing Python dependencies..."
-if [ -f "requirements.txt" ]; then
-    pip install -r requirements.txt
+echo "Installing Python dependencies..."
+pip install -r requirements.txt
+
+# Deactivate virtual environment
+deactivate
+
+# Set up the update script
+echo "Setting up the update script..."
+cat << 'EOF' > check_updates.sh
+#!/bin/bash
+
+# check_updates.sh
+# This script checks if updates are available in the Git repository.
+
+cd $PROJECT_DIR || exit
+
+# Fetch updates from the remote repository
+git fetch
+
+# Check if the local branch is behind the remote branch
+if git status -uno | grep -q 'Your branch is behind'; then
+    touch update_available.flag
 else
-    echo_error "requirements.txt not found!"
-    exit 1
+    rm -f update_available.flag
 fi
+EOF
 
-# Create empty settings.json if it doesn't exist
-if [ ! -f settings.json ]; then
-    echo_info "Creating default settings.json..."
-    echo '{}' > settings.json
-fi
+# Replace placeholder with actual project directory
+sed -i "s|\$PROJECT_DIR|$PROJECT_DIR|g" check_updates.sh
 
-# Initialize the database
-if [ ! -f database/bubble_hockey.db ]; then
-    echo_info "Initializing the database..."
-    python -c "from database import Database; db = Database(); db.close()"
-fi
+# Make the update script executable
+chmod +x check_updates.sh
 
-# Set up permissions
-echo_info "Setting up file permissions..."
-chmod +x main.py
-
-# Set up Samba for asset transfer
-echo_info "Configuring Samba for asset transfer..."
-sudo smbpasswd -a $USER
-SAMBA_CONFIG="[BubbleHockey]
-path = $PROJECT_DIR/assets
-writable = yes
-create mask = 0777
-directory mask = 0777
-public = no"
-
-if ! grep -q "\[BubbleHockey\]" /etc/samba/smb.conf; then
-    echo "$SAMBA_CONFIG" | sudo tee -a /etc/samba/smb.conf > /dev/null
-    sudo systemctl restart smbd
-else
-    echo_info "Samba share already configured."
-fi
+# Set up cron job for the update script
+echo "Setting up cron job for the update script..."
+(crontab -l 2>/dev/null; echo "0 * * * * $PROJECT_DIR/check_updates.sh") | crontab -
 
 # Set up systemd service
-SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
+echo "Setting up systemd service..."
 
-echo_info "Setting up systemd service..."
-if [ ! -f "$SERVICE_FILE" ]; then
-    echo "[Unit]
-Description=Bubble Hockey Game Service
+sudo tee /etc/systemd/system/$SERVICE_NAME.service > /dev/null <<EOF
+[Unit]
+Description=Boiling Point Bubble Hockey Service
 After=network.target
 
 [Service]
-Type=simple
-User=$USER
+User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
-ExecStart=$PROJECT_DIR/venv/bin/python $PROJECT_DIR/main.py
-Restart=on-failure
+ExecStart=$PROJECT_DIR/venv/bin/$PYTHON_VERSION $PROJECT_DIR/main.py
+Restart=always
 
 [Install]
-WantedBy=multi-user.target" | sudo tee "$SERVICE_FILE" > /dev/null
-fi
+WantedBy=multi-user.target
+EOF
 
-# Reload systemd and enable service
+# Reload systemd daemon and enable the service
 sudo systemctl daemon-reload
-sudo systemctl enable "$SERVICE_NAME"
+sudo systemctl enable $SERVICE_NAME.service
 
-echo_info "Installation complete!"
+# Start the service
+echo "Starting the service..."
+sudo systemctl start $SERVICE_NAME.service
 
-echo "----------------------------------------"
-echo "Next steps:"
-echo "1. Transfer your assets (images, sounds, fonts) to the appropriate directories under 'assets/'."
-echo "   You can access the 'assets' directory via Samba using the following credentials:"
-echo "   - Address: \\\\$(hostname -I | awk '{print $1}')\\BubbleHockey"
-echo "   - Username: $USER"
-echo "   - Password: [the password you set during Samba configuration]"
 echo ""
-echo "2. Start the game service:"
-echo "   sudo systemctl start $SERVICE_NAME"
-echo ""
-echo "The game is set to run on boot."
-echo "----------------------------------------"
+echo "Installation complete! The Boiling Point Bubble Hockey service is now running."
+echo "You can check the status of the service using:"
+echo "sudo systemctl status $SERVICE_NAME.service"
