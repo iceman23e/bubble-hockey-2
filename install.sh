@@ -3,7 +3,7 @@
 # install.sh
 
 # Set variables
-REPO_URL="https://github.com/yourusername/bubble_hockey.git"
+REPO_URL="https://github.com/iceman23e/bubble-hockey-2.git"
 PROJECT_DIR="/home/pi/bubble_hockey"
 SERVICE_NAME="bubble_hockey.service"
 USER="pi"
