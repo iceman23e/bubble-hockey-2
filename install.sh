@@ -8,7 +8,11 @@ prompt() {
     local default_value="$2"
     local var_name="$3"
     read -p "$prompt_message [$default_value]: " input
-    export $var_name="${input:-$default_value}"
+    if [[ -z "$input" ]]; then
+        eval "$var_name=\"$default_value\""
+    else
+        eval "$var_name=\"$input\""
+    fi
 }
 
 # Prompt for variables
@@ -71,7 +75,7 @@ cat << 'EOF' > check_updates.sh
 # check_updates.sh
 # This script checks if updates are available in the Git repository.
 
-cd $PROJECT_DIR || exit
+cd "$PROJECT_DIR" || exit
 
 # Fetch updates from the remote repository
 git fetch
@@ -83,9 +87,6 @@ else
     rm -f update_available.flag
 fi
 EOF
-
-# Replace placeholder with actual project directory
-sed -i "s|\$PROJECT_DIR|$PROJECT_DIR|g" check_updates.sh
 
 # Make the update script executable
 chmod +x check_updates.sh
