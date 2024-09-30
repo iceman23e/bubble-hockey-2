@@ -7,13 +7,15 @@ prompt() {
     local prompt_message="$1"
     local default_value="$2"
     local var_name="$3"
-    
-    echo "$prompt_message [$default_value]: "
-    read input
+
+    # Use /dev/tty to read input from the terminal
+    printf "%s [%s]: " "$prompt_message" "$default_value" > /dev/tty
+    read input < /dev/tty
     if [[ -z "$input" ]]; then
         input="$default_value"
     fi
-    eval "$var_name=\"$input\""
+    # Use indirect parameter expansion to set the variable
+    printf -v "$var_name" '%s' "$input"
 }
 
 # Prompt for variables
@@ -76,7 +78,7 @@ deactivate
 
 # Set up the update script
 echo "Setting up the update script..."
-cat << 'EOF' > check_updates.sh
+cat << EOF > check_updates.sh
 #!/bin/bash
 
 # check_updates.sh
