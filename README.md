@@ -2,7 +2,7 @@
 
 to install:
 ```
-curl -sSL https://raw.githubusercontent.com/iceman23e/bubble_hockey_2/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/iceman23e/bubble-hockey-2/main/install.sh | bash
 ```
 Make updator executable:
 ```
