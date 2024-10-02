@@ -39,6 +39,13 @@ class Settings:
                 self.combo_max_stack = data.get('combo_max_stack', 5)
                 # Theme settings
                 self.current_theme = data.get('current_theme', 'default')
+                # GPIO pin configurations
+                self.gpio_pins = {
+                    'goal_sensor_red': 17,       # Replace with actual GPIO pin numbers
+                    'goal_sensor_blue': 27,
+                    'puck_sensor_red': 22,
+                    'puck_sensor_blue': 23
+                }
         else:
             # Set default settings
             self.screen_width = 1480
