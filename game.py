@@ -13,9 +13,10 @@ from datetime import datetime, timedelta
 import subprocess
 
 class Game:
-    def __init__(self, screen, settings):
+    def __init__(self, screen, settings, gpio_handler):
         self.screen = screen
         self.settings = settings
+        self.gpio_handler = gpio_handler
         self.clock = pygame.time.Clock()
         self.db = Database()
         self.current_game_id = None
@@ -23,12 +24,21 @@ class Game:
         self.mode = None
         self.gameplay = None
         self.is_over = False
+        self.game_started = False
         self.sounds_enabled = True
         self.font_small = pygame.font.Font('assets/fonts/Pixellari.ttf', 20)
         self.font_large = pygame.font.Font('assets/fonts/Pixellari.ttf', 40)
         self.update_available = False  # Flag to indicate if an update is available
         self.update_notification_rect = None  # Rect for the update notification
         self.check_for_updates()  # Check for updates on game start
+
+        # Initialize puck possession state
+        self.puck_possession = None  # 'red', 'blue', 'in_play', or None
+        self.countdown = None  # Countdown timer
+        self.countdown_start_time = None
+
+        # Set reference to game in gpio_handler
+        self.gpio_handler.set_game(self)
 
     def load_assets(self):
         """Load all necessary assets for the game."""
@@ -106,13 +116,13 @@ class Game:
         else:
             logging.error(f'Unknown game mode: {mode}')
             return
-        # Record game start in the database
-        self.current_game_id = self.db.start_new_game(self.mode)
+        logging.info(f"Game mode set to {mode}")
 
     def handle_event(self, event):
         """Handle events for the game."""
-        # Pass events to gameplay
-        self.gameplay.handle_event(event)
+        if self.game_started:
+            # Pass events to gameplay
+            self.gameplay.handle_event(event)
 
         # Handle update initiation
         if self.update_available:
@@ -123,18 +133,89 @@ class Game:
 
     def update(self):
         """Update the game state."""
-        self.gameplay.update()
-        if self.gameplay.is_over:
-            self.is_over = True
-            # Record game end in database
-            self.db.end_game(self.current_game_id, self.gameplay.score)
+        # Get the puck possession state from gpio_handler
+        self.puck_possession = self.gpio_handler.puck_possession
+
+        # Game start logic
+        if not self.game_started:
+            if self.puck_possession == 'in_play':
+                # Start countdown if not already started
+                if self.countdown is None:
+                    self.countdown = 3
+                    self.countdown_start_time = pygame.time.get_ticks()
+                    logging.info("Starting countdown timer")
+                else:
+                    # Update countdown
+                    elapsed_time = (pygame.time.get_ticks() - self.countdown_start_time) / 1000
+                    if elapsed_time >= 1:
+                        self.countdown -= 1
+                        self.countdown_start_time = pygame.time.get_ticks()
+                        if self.countdown <= 0:
+                            # Start the game
+                            self.game_started = True
+                            self.countdown = None
+                            logging.info("Countdown complete. Game starting.")
+                            # Record game start in the database
+                            self.current_game_id = self.db.start_new_game(self.mode)
+            elif self.puck_possession in ('red', 'blue'):
+                # Start the game immediately
+                self.game_started = True
+                logging.info(f"Game starting. Puck possessed by {self.puck_possession} team.")
+                # Record game start in the database
+                self.current_game_id = self.db.start_new_game(self.mode)
+            else:
+                # Waiting for puck
+                pass
+        else:
+            # Game has started, update gameplay
+            self.gameplay.update()
+            if self.gameplay.is_over:
+                self.is_over = True
+                # Record game end in database
+                self.db.end_game(self.current_game_id, self.gameplay.score)
+
+        # Check for updates
+        self.check_for_updates()
 
     def draw(self):
         """Draw the game screen."""
-        self.gameplay.draw(self.screen)
-        # If an update is available, display the notification
-        if self.update_available:
-            self.display_update_notification()
+        if not self.game_started:
+            # Clear the screen
+            self.screen.fill(self.settings.bg_color)
+            # Draw countdown or waiting message
+            if self.countdown is not None:
+                # Display countdown
+                countdown_text = self.font_large.render(str(self.countdown), True, (255, 255, 255))
+                text_rect = countdown_text.get_rect(center=(self.settings.screen_width // 2, self.settings.screen_height // 2))
+                self.screen.blit(countdown_text, text_rect)
+            else:
+                # Display waiting message
+                if self.puck_possession == 'red':
+                    text = "Waiting for Red Team to eject the puck..."
+                elif self.puck_possession == 'blue':
+                    text = "Waiting for Blue Team to eject the puck..."
+                else:
+                    text = "Waiting for puck..."
+                text_surface = self.font_small.render(text, True, (255, 255, 255))
+                text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, self.settings.screen_height // 2))
+                self.screen.blit(text_surface, text_rect)
+        else:
+            # Game has started, draw gameplay
+            self.gameplay.draw(self.screen)
+            # If an update is available, display the notification
+            if self.update_available:
+                self.display_update_notification()
+
+    def goal_scored(self, team):
+        """Handle a goal scored by a team."""
+        if self.game_started and self.gameplay:
+            self.gameplay.goal_scored(team)
+        else:
+            logging.info("Goal detected before game started.")
+
+    def cleanup(self):
+        """Cleanup resources."""
+        self.db.close()
 
     def check_for_updates(self):
         """Check if an update is available by looking for the flag file."""
@@ -164,7 +245,7 @@ class Game:
         # Perform the update
         try:
             # Navigate to the project directory
-            os.chdir('/home/pi/bubble_hockey')
+            os.chdir('/home/pi/bubble_hockey')  # Update path if necessary
             # Pull the latest changes from the repository
             subprocess.run(['git', 'pull'], check=True)
             # Remove the update flag
@@ -189,17 +270,13 @@ class Game:
         pygame.quit()
         os.execv(sys.executable, ['python3'] + sys.argv)
 
-    def cleanup(self):
-        """Cleanup resources."""
-        self.db.close()
-
     def get_game_status(self):
         """Return current game status for web display."""
         status = {
-            'score': self.gameplay.score,
-            'period': self.gameplay.period,
-            'max_periods': self.gameplay.max_periods,
-            'clock': self.gameplay.clock,
+            'score': self.gameplay.score if self.gameplay else {'red': 0, 'blue': 0},
+            'period': self.gameplay.period if self.gameplay else 0,
+            'max_periods': self.gameplay.max_periods if self.gameplay else 0,
+            'clock': self.gameplay.clock if self.gameplay else 0,
             'active_event': getattr(self.gameplay, 'active_event', None)
         }
         return status
@@ -228,9 +305,20 @@ class BaseGameMode:
 
     def update(self):
         """Update the game mode state."""
-        # Update the game clock
-        dt = self.game.clock.tick(60) / 1000.0  # Delta time in seconds
-        self.clock -= dt
+        # In Evolved and Crazy Play modes, the clock runs only when the puck is in play
+        if isinstance(self, ClassicMode):
+            # In Classic mode, clock always runs
+            dt = self.game.clock.tick(60) / 1000.0
+            self.clock -= dt
+        else:
+            # In other modes, clock runs only when puck is in play
+            if self.game.puck_possession == 'in_play':
+                dt = self.game.clock.tick(60) / 1000.0
+                self.clock -= dt
+            else:
+                # Puck not in play, clock does not decrement
+                self.game.clock.tick(60)  # Maintain frame rate
+
         if self.clock <= 0:
             self.end_period()
 
@@ -249,6 +337,11 @@ class BaseGameMode:
         clock_text = self.game.font_small.render(f"Time Remaining: {int(self.clock)}s", True, (255, 255, 255))
         clock_rect = clock_text.get_rect(center=(self.settings.screen_width // 2, 130))
         screen.blit(clock_text, clock_rect)
+        # Display puck possession
+        possession_text = f"Puck Possession: {self.game.puck_possession.capitalize() if self.game.puck_possession else 'Unknown'}"
+        possession_surface = self.game.font_small.render(possession_text, True, (255, 255, 255))
+        possession_rect = possession_surface.get_rect(center=(self.settings.screen_width // 2, 160))
+        screen.blit(possession_surface, possession_rect)
         # Draw other game elements as needed
 
     def end_period(self):
@@ -293,6 +386,10 @@ class BaseGameMode:
         self.power_up_end_time = None
         logging.info("Power-up deactivated")
 
+    def cleanup(self):
+        """Clean up resources if needed."""
+        pass
+
 class ClassicMode(BaseGameMode):
     """Classic game mode with standard rules."""
     def __init__(self, game):
@@ -301,11 +398,7 @@ class ClassicMode(BaseGameMode):
 
     def handle_event(self, event):
         """Handle events specific to Classic mode."""
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_r:
-                self.goal_scored('red')
-            elif event.key == pygame.K_b:
-                self.goal_scored('blue')
+        pass  # No special events in classic mode
 
     def update(self):
         """Update the game state."""
@@ -320,7 +413,7 @@ class ClassicMode(BaseGameMode):
         # Draw power-up status
         if self.power_up_active:
             power_up_text = self.game.font_small.render("Power-Up Active!", True, (255, 255, 0))
-            power_up_rect = power_up_text.get_rect(center=(self.settings.screen_width // 2, 160))
+            power_up_rect = power_up_text.get_rect(center=(self.settings.screen_width // 2, 190))
             screen.blit(power_up_text, power_up_rect)
 
 class EvolvedMode(BaseGameMode):
@@ -334,21 +427,21 @@ class EvolvedMode(BaseGameMode):
     def handle_event(self, event):
         """Handle events specific to Evolved mode."""
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_r:
-                self.goal_scored('red')
-            elif event.key == pygame.K_b:
-                self.goal_scored('blue')
-            elif event.key == pygame.K_t and self.settings.taunts_enabled:
+            if event.key == pygame.K_t and self.settings.taunts_enabled:
                 self.play_random_taunt()
 
     def update(self):
         """Update the game state."""
         super().update()
         # Handle taunt timing
-        self.taunt_timer += self.game.clock.get_time() / 1000.0
-        if self.taunt_timer >= self.settings.taunt_frequency:
-            self.play_random_taunt()
-            self.taunt_timer = 0
+        if self.settings.taunts_enabled and self.game.puck_possession == 'in_play':
+            self.taunt_timer += self.game.clock.get_time() / 1000.0
+            if self.taunt_timer >= self.settings.taunt_frequency:
+                self.play_random_taunt()
+                self.taunt_timer = 0
+        # Handle power-up expiration
+        if self.power_up_active and datetime.now() >= self.power_up_end_time:
+            self.deactivate_power_up()
 
     def draw(self, screen):
         """Draw the game elements."""
@@ -357,8 +450,8 @@ class EvolvedMode(BaseGameMode):
 
     def play_random_taunt(self):
         """Play a random taunt sound."""
-        if self.sounds_enabled and self.sounds['taunts']:
-            taunt_sound = random.choice(self.sounds['taunts'])
+        if self.game.sounds_enabled and self.game.sounds['taunts']:
+            taunt_sound = random.choice(self.game.sounds['taunts'])
             taunt_sound.play()
             logging.info("Taunt sound played")
 
@@ -372,17 +465,13 @@ class CrazyPlayMode(BaseGameMode):
 
     def handle_event(self, event):
         """Handle events specific to Crazy Play mode."""
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_r:
-                self.goal_scored('red')
-            elif event.key == pygame.K_b:
-                self.goal_scored('blue')
+        pass  # No special events in crazy play mode
 
     def update(self):
         """Update the game state."""
         super().update()
         # Handle random sounds
-        if self.settings.random_sounds_enabled:
+        if self.settings.random_sounds_enabled and self.game.puck_possession == 'in_play':
             self.random_sound_timer += self.game.clock.get_time() / 1000.0
             if self.random_sound_timer >= self.settings.random_sound_frequency:
                 self.play_random_sound()
@@ -398,8 +487,8 @@ class CrazyPlayMode(BaseGameMode):
 
     def play_random_sound(self):
         """Play a random sound."""
-        if self.sounds_enabled and self.sounds['random_sounds']:
-            random_sound = random.choice(self.sounds['random_sounds'])
+        if self.game.sounds_enabled and self.game.sounds['random_sounds']:
+            random_sound = random.choice(self.game.sounds['random_sounds'])
             random_sound.play()
             logging.info("Random sound played")
 
