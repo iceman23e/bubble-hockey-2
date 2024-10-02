@@ -40,12 +40,12 @@ class Settings:
                 # Theme settings
                 self.current_theme = data.get('current_theme', 'default')
                 # GPIO pin configurations
-                self.gpio_pins = {
+                self.gpio_pins = data.get('gpio_pins', {
                     'goal_sensor_red': 17,       # Replace with actual GPIO pin numbers
                     'goal_sensor_blue': 27,
                     'puck_sensor_red': 22,
                     'puck_sensor_blue': 23
-                }
+                })
         else:
             # Set default settings
             self.screen_width = 1480
@@ -69,6 +69,13 @@ class Settings:
             self.combo_reward_type = 'extra_point'
             self.combo_max_stack = 5
             self.current_theme = 'default'
+            # GPIO pin configurations
+            self.gpio_pins = {
+                'goal_sensor_red': 17,       # Replace with actual GPIO pin numbers
+                'goal_sensor_blue': 27,
+                'puck_sensor_red': 22,
+                'puck_sensor_blue': 23
+            }
             # Save default settings
             self.save_settings()
 
@@ -99,6 +106,8 @@ class Settings:
             'combo_max_stack': self.combo_max_stack,
             # Theme settings
             'current_theme': self.current_theme,
+            # GPIO pin configurations
+            'gpio_pins': self.gpio_pins
         }
         with open(self.settings_file, 'w') as f:
             json.dump(data, f, indent=4)
