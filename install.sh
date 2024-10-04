@@ -76,6 +76,10 @@ pip install -r requirements.txt
 # Deactivate virtual environment
 deactivate
 
+# Set permissions for asset directories
+echo "Setting permissions for asset directories..."
+chmod -R 755 assets/
+
 # Set up the update script
 echo "Setting up the update script..."
 cat << EOF > check_updates.sh
@@ -102,7 +106,7 @@ chmod +x check_updates.sh
 
 # Set up cron job for the update script
 echo "Setting up cron job for the update script..."
-(crontab -l 2>/dev/null; echo "0 * * * * $PROJECT_DIR/check_updates.sh") | crontab -
+(crontab -l 2>/dev/null; echo "*/15 * * * * $PROJECT_DIR/check_updates.sh") | crontab -
 
 # Set up systemd service
 echo "Setting up systemd service..."
@@ -117,6 +121,8 @@ User=$RUN_USER
 WorkingDirectory=$PROJECT_DIR
 ExecStart=$PROJECT_DIR/venv/bin/$PYTHON_VERSION $PROJECT_DIR/main.py
 Restart=always
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/$RUN_USER/.Xauthority
 
 [Install]
 WantedBy=multi-user.target
