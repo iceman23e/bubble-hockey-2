@@ -45,6 +45,13 @@ def main():
                 menu.handle_event(event)
                 if menu.start_game:
                     # User selected to start the game
+                    # Update the settings with the selected theme
+                    if menu.selected_theme:
+                        settings.current_theme = menu.selected_theme
+                        settings.save_settings()  # Save the selected theme
+                    else:
+                        # Use default theme if none selected
+                        menu.selected_theme = settings.current_theme
                     game = Game(screen, settings, gpio_handler)
                     game.set_mode(menu.selected_mode)  # Set the game mode based on menu selection
                     in_menu = False  # Switch to game mode
@@ -55,6 +62,7 @@ def main():
                 if game.is_over:
                     # Game is over, return to menu
                     in_menu = True  # Switch back to menu
+                    menu.reset()  # Reset the menu selections
                     menu.check_for_updates()  # Check for updates when returning to menu
 
         if in_menu:
@@ -69,6 +77,7 @@ def main():
         # Update the display
         pygame.display.flip()
         clock.tick(60)
+        settings.clock_tick = clock.get_time()
 
     # Clean up and exit
     if game:
