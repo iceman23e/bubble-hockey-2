@@ -50,6 +50,7 @@ class Game:
                 self.theme_data = json.load(f)
         else:
             self.theme_data = {}
+            logging.warning(f"Theme configuration not found for theme '{self.settings.current_theme}'. Using default assets.")
 
         # Load fonts
         self.font_small = self.load_theme_font('font_small', 'assets/fonts/Pixellari.ttf', 20)
