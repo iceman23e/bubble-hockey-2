@@ -24,15 +24,19 @@
         <h2>Current Theme: {{ current_theme }}</h2>
         <div class="theme-list">
             <h3>Available Themes</h3>
-            {% for theme in themes %}
-                <div class="theme-item">
-                    <strong>{{ theme }}</strong>
-                    <form method="POST">
-                        <input type="hidden" name="selected_theme" value="{{ theme }}">
-                        <button type="submit">Activate</button>
-                    </form>
-                </div>
-            {% endfor %}
+            {% if themes %}
+                {% for theme in themes %}
+                    <div class="theme-item">
+                        <strong>{{ theme }}</strong>
+                        <form method="POST">
+                            <input type="hidden" name="selected_theme" value="{{ theme }}">
+                            <button type="submit">Activate</button>
+                        </form>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p>No themes available. Create a new theme below.</p>
+            {% endif %}
         </div>
 
         <div class="new-theme">
@@ -41,30 +45,41 @@
                 <label for="theme_name">Theme Name:</label>
                 <input type="text" name="theme_name" required>
 
-                <!-- Asset Uploads -->
+                <!-- Asset Selection -->
                 <h4>Images</h4>
-                <label for="image_taunt_button">Taunt Button Image:</label>
-                <input type="file" name="image_taunt_button" accept="image/*">
+                <label for="asset_background_image">Background Image:</label>
+                <select name="asset_background_image">
+                    <option value="">Select an existing image</option>
+                    {% for image in available_images %}
+                        <option value="{{ image }}">{{ image }}</option>
+                    {% endfor %}
+                </select>
+                <label for="upload_image_background_image">Or upload a new image:</label>
+                <input type="file" name="upload_image_background_image" accept="image/*">
 
-                <label for="image_power_up_icon">Power-Up Icon Image:</label>
-                <input type="file" name="image_power_up_icon" accept="image/*">
-
-                <!-- Sounds -->
                 <h4>Sounds</h4>
-                {% for i in range(1,6) %}
-                    <label for="sound_taunts_{{i}}">Taunt Sound {{i}}:</label>
-                    <input type="file" name="sound_taunts_{{i}}" accept="audio/*">
-                {% endfor %}
+                <label for="asset_goal_sound">Goal Sound:</label>
+                <select name="asset_goal_sound">
+                    <option value="">Select an existing sound</option>
+                    {% for sound in available_sounds %}
+                        <option value="{{ sound }}">{{ sound }}</option>
+                    {% endfor %}
+                </select>
+                <label for="upload_sound_goal_sound">Or upload a new sound:</label>
+                <input type="file" name="upload_sound_goal_sound" accept="audio/*">
 
-                {% for i in range(1,6) %}
-                    <label for="sound_random_sounds_{{i}}">Random Sound {{i}}:</label>
-                    <input type="file" name="sound_random_sounds_{{i}}" accept="audio/*">
-                {% endfor %}
-
-                <!-- Fonts -->
                 <h4>Fonts</h4>
-                <label for="font_small">Small Font:</label>
-                <input type="file" name="font_font_small" accept=".ttf">
+                <label for="asset_font_small">Small Font:</label>
+                <select name="asset_font_small">
+                    <option value="">Select an existing font</option>
+                    {% for font in available_fonts %}
+                        <option value="{{ font }}">{{ font }}</option>
+                    {% endfor %}
+                </select>
+                <label for="upload_font_font_small">Or upload a new font:</label>
+                <input type="file" name="upload_font_font_small" accept=".ttf">
+
+                <!-- Add more asset types as needed -->
 
                 <button type="submit">Create Theme</button>
             </form>
