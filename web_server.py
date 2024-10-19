@@ -46,19 +46,16 @@ def game_data():
 @app.route('/settings', methods=['GET', 'POST'])
 def settings_route():
     if request.method == 'POST':
-        for key in [
-            'period_length', 'overtime_length', 'intermission_length',
-            'power_up_frequency', 'taunt_frequency',
-            'taunts_enabled', 'random_sounds_enabled', 'random_sound_frequency',
-            'combo_goals_enabled', 'combo_time_window', 'combo_reward_type', 'combo_max_stack'
-        ]:
-            value = request.form.get(key)
-            if value is not None and hasattr(game_settings, key):
+        for key, value in request.form.items():
+            if hasattr(game_settings, key):
                 attr_type = type(getattr(game_settings, key))
                 if attr_type is bool:
                     setattr(game_settings, key, value == 'on')
                 else:
-                    setattr(game_settings, key, attr_type(value))
+                    try:
+                        setattr(game_settings, key, attr_type(value))
+                    except ValueError:
+                        app.logger.error(f"Invalid value for setting {key}: {value}")
         game_settings.save_settings()
         logging.info('Game settings updated via web interface')
         return redirect(url_for('settings_route'))
@@ -67,17 +64,19 @@ def settings_route():
 @app.route('/system_settings', methods=['GET', 'POST'])
 def system_settings():
     if request.method == 'POST':
-        for key in ['screen_width', 'screen_height', 'bg_color', 'mqtt_broker', 'mqtt_port', 'mqtt_topic', 'web_server_port', 'classic_mode_theme_selection']:
-            value = request.form.get(key)
-            if value is not None and hasattr(game_settings, key):
+        for key, value in request.form.items():
+            if hasattr(game_settings, key):
                 if key == 'bg_color':
                     try:
                         value = tuple(map(int, value.strip('()').split(',')))
                     except:
                         value = (0, 0, 0)  # Default color
-                elif key == 'classic_mode_theme_selection':
+                elif key in ['dual_screen', 'classic_mode_theme_selection']:
                     value = value == 'on'
-                setattr(game_settings, key, type(getattr(game_settings, key))(value))
+                try:
+                    setattr(game_settings, key, type(getattr(game_settings, key))(value))
+                except ValueError:
+                    app.logger.error(f"Invalid value for setting {key}: {value}")
         game_settings.save_settings()
         logging.info('System settings updated via web interface')
         return redirect(url_for('system_settings'))
@@ -203,6 +202,12 @@ def filter_logs():
     with open(log_file, 'r') as f:
         logs = [line for line in f if level in line]
     return jsonify(logs)
+
+@app.route('/diagnostics')
+def diagnostics():
+    # Implement diagnostics functionality
+    diagnostic_data = game_instance.run_diagnostics() if game_instance else {}
+    return render_template('diagnostics.html', diagnostic_data=diagnostic_data)
 
 def run_web_server(settings, game):
     global game_settings
