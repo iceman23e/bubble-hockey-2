@@ -11,7 +11,6 @@ class Database:
         self.create_tables()
 
     def create_tables(self):
-        # Create users table
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,7 +18,6 @@ class Database:
                 avatar TEXT
             )
         ''')
-        # Create game_stats table
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS game_stats (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,7 +31,6 @@ class Database:
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
         ''')
-        # Create game_history table
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS game_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,7 +47,6 @@ class Database:
                 FOREIGN KEY(winner_id) REFERENCES users(id)
             )
         ''')
-        # Create goal_events table
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS goal_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,6 +58,11 @@ class Database:
         ''')
         self.conn.commit()
 
+        # Create indexes
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_game_history_date ON game_history(date_time)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_goal_events_game_id ON goal_events(game_id)')
+        self.conn.commit()
+
     def start_new_game(self, mode):
         date_time = datetime.now().isoformat()
         self.cursor.execute('''
@@ -69,15 +70,14 @@ class Database:
             VALUES (?, ?)
         ''', (date_time, mode))
         self.conn.commit()
-        return self.cursor.lastrowid  # Return the game ID
+        return self.cursor.lastrowid
 
     def end_game(self, game_id, score):
-        # Update the game history with the final score
         self.cursor.execute('''
             UPDATE game_history
             SET score_red = ?, score_blue = ?, duration = ?, winner_id = ?
             WHERE id = ?
-        ''', (score['red'], score['blue'], 0, 0, game_id))  # Adjust duration and winner_id as needed
+        ''', (score['red'], score['blue'], 0, 0, game_id))
         self.conn.commit()
 
     def get_goal_trends(self):
