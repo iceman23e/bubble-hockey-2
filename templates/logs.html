@@ -1,0 +1,31 @@
+<!-- logs.html -->
+:::::: container
+# Application Logs
+
+::: log-filter
+Log Level: 
+<select id="log-level">
+    <option value="INFO">INFO</option>
+    <option value="WARNING">WARNING</option>
+    <option value="ERROR">ERROR</option>
+</select>
+:::
+
+::: log-container
+{% for log in logs %}
+    <p>{{ log }}</p>
+{% endfor %}
+:::
+
+::::::
+
+<script>
+document.getElementById('log-level').addEventListener('change', function() {
+    fetch(`/filter_logs?level=${this.value}`)
+        .then(response => response.json())
+        .then(logs => {
+            document.getElementById('log-container').innerHTML = 
+                logs.map(log => `<p>${log}</p>`).join('');
+        });
+});
+</script>
