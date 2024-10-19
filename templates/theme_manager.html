@@ -1,89 +1,119 @@
-<!-- templates/theme_manager.html -->
+<!-- theme_manager.html -->
+:::::: container
+# Theme Manager
 
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Theme Manager</title>
-    <style>
-        /* Add your styles here to enhance the page */
-        body { font-family: Arial, sans-serif; background-color: #1a1a1a; color: #fff; }
-        .container { width: 80%; margin: 0 auto; }
-        h1 { text-align: center; }
-        .theme-list { margin: 20px 0; }
-        .theme-item { padding: 10px; background-color: #333; margin-bottom: 10px; }
-        .theme-item form { display: inline; }
-        .new-theme { margin-top: 40px; }
-        label { display: block; margin-top: 10px; }
-        input[type="text"], input[type="file"], select { width: 100%; padding: 5px; }
-        button { padding: 10px 20px; margin-top: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Theme Manager</h1>
-        <h2>Current Theme: {{ current_theme }}</h2>
-        <div class="theme-list">
-            <h3>Available Themes</h3>
-            {% if themes %}
-                {% for theme in themes %}
-                    <div class="theme-item">
-                        <strong>{{ theme }}</strong>
-                        <form method="POST">
-                            <input type="hidden" name="selected_theme" value="{{ theme }}">
-                            <button type="submit">Activate</button>
-                        </form>
-                    </div>
-                {% endfor %}
-            {% else %}
-                <p>No themes available. Create a new theme below.</p>
-            {% endif %}
-        </div>
+## Current Theme: {{ current_theme }}
 
-        <div class="new-theme">
-            <h3>Create New Theme</h3>
-            <form method="POST" enctype="multipart/form-data">
-                <label for="theme_name">Theme Name:</label>
-                <input type="text" name="theme_name" required>
+:::: theme-list
+### Available Themes
 
-                <!-- Asset Selection -->
-                <h4>Images</h4>
-                <label for="asset_background_image">Background Image:</label>
-                <select name="asset_background_image">
-                    <option value="">Select an existing image</option>
-                    {% for image in available_images %}
-                        <option value="{{ image }}">{{ image }}</option>
-                    {% endfor %}
-                </select>
-                <label for="upload_image_background_image">Or upload a new image:</label>
-                <input type="file" name="upload_image_background_image" accept="image/*">
+{% if themes %}
+    {% for theme in themes %}
+    ::: theme-item
+    **{{ theme }}**
+    <button class="theme-select" data-theme-id="{{ theme }}">Activate</button>
+    <button onclick="exportTheme('{{ theme }}')">Export</button>
+    :::
+    {% endfor %}
+{% else %}
+    No themes available. Create a new theme below.
+{% endif %}
+::::
 
-                <h4>Sounds</h4>
-                <label for="asset_goal_sound">Goal Sound:</label>
-                <select name="asset_goal_sound">
-                    <option value="">Select an existing sound</option>
-                    {% for sound in available_sounds %}
-                        <option value="{{ sound }}">{{ sound }}</option>
-                    {% endfor %}
-                </select>
-                <label for="upload_sound_goal_sound">Or upload a new sound:</label>
-                <input type="file" name="upload_sound_goal_sound" accept="audio/*">
+::: new-theme
+### Create New Theme
 
-                <h4>Fonts</h4>
-                <label for="asset_font_small">Small Font:</label>
-                <select name="asset_font_small">
-                    <option value="">Select an existing font</option>
-                    {% for font in available_fonts %}
-                        <option value="{{ font }}">{{ font }}</option>
-                    {% endfor %}
-                </select>
-                <label for="upload_font_font_small">Or upload a new font:</label>
-                <input type="file" name="upload_font_font_small" accept=".ttf">
+Theme Name: <input type="text" id="new-theme-name">
 
-                <!-- Add more asset types as needed -->
+#### Images
 
-                <button type="submit">Create Theme</button>
-            </form>
-        </div>
-    </div>
-</body>
-</html>
+Background Image: 
+<select id="background-image">
+    {% for image in available_images %}
+    <option value="{{ image }}">{{ image }}</option>
+    {% endfor %}
+</select>
+Or upload a new image: <input type="file" id="upload-background-image">
+
+#### Sounds
+
+Goal Sound: 
+<select id="goal-sound">
+    {% for sound in available_sounds %}
+    <option value="{{ sound }}">{{ sound }}</option>
+    {% endfor %}
+</select>
+Or upload a new sound: <input type="file" id="upload-goal-sound">
+
+#### Fonts
+
+Small Font: 
+<select id="small-font">
+    {% for font in available_fonts %}
+    <option value="{{ font }}">{{ font }}</option>
+    {% endfor %}
+</select>
+Or upload a new font: <input type="file" id="upload-small-font">
+
+<button onclick="createTheme()">Create Theme</button>
+:::
+
+::: import-theme
+### Import Theme
+<input type="file" id="import-theme-file">
+<button onclick="importTheme()">Import Theme</button>
+:::
+
+::: theme-preview
+### Theme Preview
+<div id="preview-container">
+    <!-- Preview content will be dynamically loaded here -->
+</div>
+:::
+
+::::::
+
+<script>
+function updatePreview(themeId) {
+    fetch(`/theme_preview/${themeId}`)
+        .then(response => response.text())
+        .then(html => {
+            document.getElementById('preview-container').innerHTML = html;
+        });
+}
+
+document.querySelectorAll('.theme-select').forEach(button => {
+    button.addEventListener('click', function() {
+        updatePreview(this.dataset.themeId);
+    });
+});
+
+function exportTheme(themeName) {
+    window.location.href = `/export_theme/${themeName}`;
+}
+
+function importTheme() {
+    const fileInput = document.getElementById('import-theme-file');
+    const formData = new FormData();
+    formData.append('theme_file', fileInput.files[0]);
+
+    fetch('/import_theme', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.text())
+    .then(result => {
+        alert(result);
+        location.reload();
+    })
+    .catch(error => {
+        console.error('Error:', error);
+    });
+}
+
+function createTheme() {
+    // Implementation for theme creation
+    // This should collect all the input values and send them to the server
+    // Similar to the import function above
+}
+</script>
