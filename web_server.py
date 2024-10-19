@@ -152,6 +152,52 @@ def theme_manager():
                            available_sounds=available_sounds,
                            available_fonts=available_fonts)
 
+@app.route('/export_theme/<theme_name>')
+def export_theme(theme_name):
+    theme_path = os.path.join('assets/themes/', theme_name)
+    if not os.path.exists(theme_path):
+        return "Theme not found", 404
+
+    memory_file = io.BytesIO()
+    with zipfile.ZipFile(memory_file, 'w') as zf:
+        for root, dirs, files in os.walk(theme_path):
+            for file in files:
+                zf.write(os.path.join(root, file), 
+                         os.path.relpath(os.path.join(root, file), theme_path))
+
+    memory_file.seek(0)
+    return send_file(memory_file, 
+                     attachment_filename=f'{theme_name}.zip', 
+                     as_attachment=True)
+
+@app.route('/import_theme', methods=['POST'])
+def import_theme():
+    if 'theme_file' not in request.files:
+        return "No file part", 400
+    file = request.files['theme_file']
+    if file.filename == '':
+        return "No selected file", 400
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        theme_name = os.path.splitext(filename)[0]
+        theme_path = os.path.join('assets/themes/', theme_name)
+        
+        with zipfile.ZipFile(file) as zf:
+            zf.extractall(theme_path)
+        
+        return "Theme imported successfully", 200
+    return "Invalid file", 400
+
+@app.route('/theme_preview/<theme_id>')
+def theme_preview(theme_id):
+    # Load theme data
+    theme_path = os.path.join('assets/themes/', theme_id, 'theme.json')
+    with open(theme_path, 'r') as f:
+        theme_data = json.load(f)
+    
+    # Render a preview based on theme data
+    return render_template('theme_preview.html', theme=theme_data)
+
 def run_web_server(settings, game):
     global game_settings
     global game_instance
