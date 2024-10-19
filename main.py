@@ -3,16 +3,30 @@
 import pygame
 import sys
 import logging
+from logging.handlers import RotatingFileHandler
 from settings import Settings
 from intro import Intro
 from menu import Menu
 from game import Game
 from gpio import GPIOHandler
 
+def setup_logging():
+    log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    log_file = 'bubble_hockey.log'
+    
+    my_handler = RotatingFileHandler(log_file, mode='a', maxBytes=5*1024*1024, 
+                                     backupCount=2, encoding=None, delay=0)
+    my_handler.setFormatter(log_formatter)
+    my_handler.setLevel(logging.INFO)
+
+    app_log = logging.getLogger('root')
+    app_log.setLevel(logging.INFO)
+    app_log.addHandler(my_handler)
+
 def main():
     # Initialize Pygame and logging
     pygame.init()
-    logging.basicConfig(level=logging.INFO)
+    setup_logging()
     settings = Settings()
 
     # Set up the display with the configured screen width and height
