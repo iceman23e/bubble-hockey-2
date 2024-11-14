@@ -75,7 +75,8 @@ class Settings:
                     # New settings
                     self.taunts_enabled = data.get('taunts_enabled', self.taunts_enabled)
                     self.random_sounds_enabled = data.get('random_sounds_enabled', self.random_sounds_enabled)
-                    self.random_sound_frequency = data.get('random_sound_frequency', self.random_sound_frequency)
+                    self.random_sound_min_interval = data.get('random_sound_min_interval', self.random_sound_min_interval)
+                    self.random_sound_max_interval = data.get('random_sound_max_interval', self.random_sound_max_interval)
                     # Combo goal settings
                     self.combo_goals_enabled = data.get('combo_goals_enabled', self.combo_goals_enabled)
                     self.combo_time_window = data.get('combo_time_window', self.combo_time_window)
@@ -117,7 +118,8 @@ class Settings:
             # New settings
             'taunts_enabled': self.taunts_enabled,
             'random_sounds_enabled': self.random_sounds_enabled,
-            'random_sound_frequency': self.random_sound_frequency,
+            'random_sound_min_interval': self.random_sound_min_interval,
+            'random_sound_max_interval': self.random_sound_max_interval,
             # Combo goal settings
             'combo_goals_enabled': self.combo_goals_enabled,
             'combo_time_window': self.combo_time_window,
