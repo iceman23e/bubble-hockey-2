@@ -89,6 +89,10 @@ class Settings:
                     self.gpio_pins = data.get('gpio_pins', self.gpio_pins)
                     # Other settings
                     self.clock_tick = 0  # Reset clock tick
+                # Ensure min interval is not greater than max interval
+                if self.random_sound_min_interval > self.random_sound_max_interval:
+                    logging.warning("random_sound_min_interval is greater than random_sound_max_interval. Adjusting values.")
+                    self.random_sound_min_interval, self.random_sound_max_interval = self.random_sound_max_interval, self.random_sound_min_interval
             except json.JSONDecodeError as e:
                 logging.error(f'Error decoding settings file: {e}')
                 logging.info('Using default settings.')
