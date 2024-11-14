@@ -50,7 +50,8 @@ def settings_route():
         for key in [
             'period_length', 'overtime_length', 'intermission_length',
             'power_up_frequency', 'taunt_frequency',
-            'taunts_enabled', 'random_sounds_enabled', 'random_sound_frequency',
+            'taunts_enabled', 'random_sounds_enabled',
+            'random_sound_min_interval', 'random_sound_max_interval',
             'combo_goals_enabled', 'combo_time_window', 'combo_reward_type', 'combo_max_stack'
         ]:
             value = request.form.get(key)
@@ -58,8 +59,12 @@ def settings_route():
                 attr_type = type(getattr(game_settings, key))
                 if attr_type is bool:
                     setattr(game_settings, key, value == 'on')
+                elif attr_type is int:
+                    setattr(game_settings, key, int(value))
+                elif attr_type is float:
+                    setattr(game_settings, key, float(value))
                 else:
-                    setattr(game_settings, key, attr_type(value))
+                    setattr(game_settings, key, value)
         game_settings.save_settings()
         logging.info('Game settings updated via web interface')
         return redirect(url_for('settings_route'))
@@ -79,7 +84,13 @@ def system_settings():
                         value = (0, 0, 0)  # Default color
                 elif key == 'classic_mode_theme_selection':
                     value = value == 'on'
-                setattr(game_settings, key, type(getattr(game_settings, key))(value))
+                else:
+                    attr_type = type(getattr(game_settings, key))
+                    if attr_type is int:
+                        value = int(value)
+                    elif attr_type is float:
+                        value = float(value)
+                setattr(game_settings, key, value)
         game_settings.save_settings()
         logging.info('System settings updated via web interface')
         return redirect(url_for('system_settings'))
