@@ -31,8 +31,7 @@ class Settings:
         # New settings
         self.taunts_enabled = True
         self.random_sounds_enabled = True
-        self.random_sound_min_interval = 5   # Minimum interval in seconds
-        self.random_sound_max_interval = 30  # Maximum interval in seconds
+        self.random_sound_frequency = 60
         # Combo goal settings
         self.combo_goals_enabled = True
         self.combo_time_window = 30
