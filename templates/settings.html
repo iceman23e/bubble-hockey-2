@@ -49,8 +49,13 @@
                 <input type="checkbox" name="random_sounds_enabled" {% if settings['random_sounds_enabled'] %}checked{% endif %}>
                 <label for="random_sounds_enabled">Enable Random Sounds</label>
             </div>
-            <label for="random_sound_frequency">Random Sound Frequency (seconds):</label>
-            <input type="number" name="random_sound_frequency" value="{{ settings['random_sound_frequency'] }}">
+
+            <!-- Add new fields for random sound intervals -->
+            <label for="random_sound_min_interval">Random Sound Min Interval (seconds):</label>
+            <input type="number" name="random_sound_min_interval" value="{{ settings['random_sound_min_interval'] }}" min="1" step="1">
+
+            <label for="random_sound_max_interval">Random Sound Max Interval (seconds):</label>
+            <input type="number" name="random_sound_max_interval" value="{{ settings['random_sound_max_interval'] }}" min="1" step="1">
 
             <!-- Combo Goals -->
             <h3>Combo Goals</h3>
