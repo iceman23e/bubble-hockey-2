@@ -1,5 +1,3 @@
-# crazy_play_mode.py
-
 from base_game_mode import BaseGameMode
 import pygame
 import logging
@@ -7,254 +5,251 @@ import random
 from datetime import datetime, timedelta
 
 class CrazyPlayMode(BaseGameMode):
-    """Crazy Play mode with unpredictable elements."""
+    """Crazy Play mode with exciting but physically implementable features."""
+    
     def __init__(self, game):
         super().__init__(game)
         logging.info("Crazy Play mode initialized")
-        self.load_assets()
         
-        # Initialize crazy play specific features
-        self.random_timer = 0
-        self.next_random_event = self._get_next_random_time()
-        self.active_effects = []
-        self.current_modifier = 1.0
-        self.gravity_reversed = False
-        self.chaos_level = 0
+        # Core scoring features
+        self.current_goal_value = 1
+        self.first_goal_opportunity = True  # Track first goal opportunity
+        self.first_goal_window = self.settings.period_length * 0.15  # 15% of period length
+        self.frenzy_window = max(30, self.settings.period_length * 0.1)  # 10% of period or minimum 30 seconds
+        self.last_goal_time = None
+        self.combo_count = 0
         
-        # Override base settings for crazy mode
-        self.max_periods = 5  # Longer games in crazy mode
-        self.clock = self.settings.period_length * 1.5  # 50% longer periods
+        # Challenge states
+        self.quick_strike_active = False
+        self.quick_strike_deadline = None
+        self.frenzy_mode = False  # For final minute
         
-        # Enable all features
-        self.random_events_enabled = True
-        self.power_ups_enabled = True
-        self.combos_enabled = True
+        # Event timing
+        self.next_event_time = datetime.now() + timedelta(seconds=15)
+        self.event_duration = None
+        self.last_sound_time = datetime.now()
+        self.sound_cooldown = 3
+        
+        # Override base settings
+        self.max_periods = 5  # Longer games
+        self.clock = self.settings.period_length
+        
+        # Load sounds
+        self.load_crazy_sounds()
 
-    def load_assets(self):
-        """Load assets specific to Crazy Play mode."""
-        try:
-            # Load backgrounds for different chaos levels
-            self.backgrounds = {
-                'normal': pygame.image.load('assets/crazy_play/images/background_normal.png'),
-                'chaos': pygame.image.load('assets/crazy_play/images/background_chaos.png'),
-                'extreme': pygame.image.load('assets/crazy_play/images/background_extreme.png')
-            }
-            
-            # Load effect overlays
-            self.effect_overlays = {
-                'gravity': pygame.image.load('assets/crazy_play/images/gravity_overlay.png'),
-                'speed': pygame.image.load('assets/crazy_play/images/speed_overlay.png'),
-                'multiplier': pygame.image.load('assets/crazy_play/images/multiplier_overlay.png')
-            }
-            
-            logging.debug("Crazy Play mode assets loaded successfully")
-        except Exception as e:
-            logging.error(f"Failed to load Crazy Play mode assets: {e}")
-            self.backgrounds = {}
-            self.effect_overlays = {}
+    def load_crazy_sounds(self):
+        """Load sound effects specific to crazy mode."""
+        self.crazy_sounds = {
+            'bonus': load_sound('assets/sounds/bonus_activated.wav'),
+            'quick_strike': load_sound('assets/sounds/quick_strike.wav'),
+            'combo': load_sound('assets/sounds/combo_goal.wav'),
+            'frenzy': load_sound('assets/sounds/frenzy.wav'),
+        }
 
     def update(self):
-        """Update the game state with crazy elements."""
-        if self.game.state_machine.state != self.game.state_machine.states.PLAYING:
-            return
-
-        # Update base game elements
+        """Update the game state."""
         super().update()
         
-        # Update only when puck is in play
-        if self.game.puck_possession == 'in_play':
-            dt = self.game.clock.tick(60) / 1000.0
+        current_time = datetime.now()
+        
+        # Check for final frenzy mode
+        if not self.frenzy_mode and self.clock <= self.frenzy_window:
+            self._start_final_frenzy()
             
-            # Update random event timer
-            self.random_timer += dt
-            if self.random_timer >= self.next_random_event:
-                self._trigger_random_event()
-                self.random_timer = 0
-                self.next_random_event = self._get_next_random_time()
+        # Check if first goal opportunity has expired
+        if self.first_goal_opportunity and (self.settings.period_length - self.clock) > self.first_goal_window:
+            self.first_goal_opportunity = False
+        
+        # Check if it's time for a new random event
+        if current_time >= self.next_event_time:
+            self._trigger_random_event()
             
-            # Update active effects
-            self._update_active_effects(dt)
+        # Update quick strike challenge if active
+        if self.quick_strike_active and current_time >= self.quick_strike_deadline:
+            self._end_quick_strike()
             
-            # Update chaos level
-            self._update_chaos_level()
-        else:
-            self.game.clock.tick(60)
-
-    def _get_next_random_time(self):
-        """Get time until next random event based on chaos level."""
-        base_time = max(5, 30 - (self.chaos_level * 3))
-        return random.uniform(base_time * 0.5, base_time)
+        # Update event duration
+        if self.event_duration and current_time >= self.event_duration:
+            self._end_current_event()
 
     def _trigger_random_event(self):
-        """Trigger a random crazy event."""
+        """Trigger a random game event."""
         events = [
-            self._reverse_gravity,
-            self._multiply_scores,
-            self._speed_burst,
-            self._bonus_powerup,
-            self._chaos_mode
+            self._start_quick_strike,
+            self._activate_bonus_goal,
+            self._start_combo_challenge
         ]
-        event = random.choice(events)
-        event()
-        logging.info(f"Triggered random event: {event.__name__}")
+        
+        # Don't start new events in final minute
+        if not self.frenzy_mode:
+            event = random.choice(events)
+            event()
+        
+        # Set next event time (between 20-40 seconds)
+        self.next_event_time = datetime.now() + timedelta(seconds=random.randint(20, 40))
 
-    def _update_active_effects(self, dt):
-        """Update all active effects."""
+    def _start_quick_strike(self):
+        """Start a quick strike challenge."""
+        self.quick_strike_active = True
+        self.quick_strike_deadline = datetime.now() + timedelta(seconds=15)
+        self.active_event = "QUICK STRIKE CHALLENGE! SCORE IN 15 SECONDS!"
+        self._play_sound('quick_strike')
+
+    def _activate_bonus_goal(self):
+        """Activate bonus goal scoring."""
+        self.current_goal_value = random.choice([2, 3])
+        self.event_duration = datetime.now() + timedelta(seconds=20)
+        self.active_event = f"{self.current_goal_value}X POINTS PER GOAL!"
+        self._play_sound('bonus')
+
+    def _start_combo_challenge(self):
+        """Start a combo goal challenge."""
+        self.combo_count = 0
+        self.event_duration = datetime.now() + timedelta(seconds=30)
+        self.active_event = "COMBO CHALLENGE! QUICK GOALS FOR BONUS POINTS!"
+        self._play_sound('bonus')
+
+    def _start_final_minute_frenzy(self):
+        """Activate final minute frenzy mode."""
+        self.frenzy_mode = True
+        self.active_event = "FINAL MINUTE FRENZY! ALL GOALS WORTH DOUBLE!"
+        self._play_sound('frenzy')
+
+    def handle_goal(self, team):
+        """Handle goal scoring with various bonuses."""
         current_time = datetime.now()
-        remaining_effects = []
+        points = self.current_goal_value
         
-        for effect in self.active_effects:
-            if current_time < effect['end_time']:
-                remaining_effects.append(effect)
-            else:
-                self._end_effect(effect)
+        # Calculate all bonuses
+        bonuses = []
         
-        self.active_effects = remaining_effects
-
-    def _end_effect(self, effect):
-        """End an active effect."""
-        effect_type = effect['type']
-        if effect_type == 'gravity':
-            self.gravity_reversed = False
-        elif effect_type == 'multiplier':
-            self.current_modifier = 1.0
+        # First goal bonus (only within time window)
+        if self.first_goal_opportunity:
+            # Scale bonus based on how quickly they scored
+            time_taken = self.settings.period_length - self.clock
+            max_bonus = 3
+            bonus = max(1, int(max_bonus * (1 - time_taken / self.first_goal_window)))
+            points += bonus
+            bonuses.append(f"FIRST GOAL +{bonus}!")
+            self.first_goal_opportunity = False
         
-        logging.info(f"Effect ended: {effect_type}")
-
-    def _update_chaos_level(self):
-        """Update the chaos level based on game progress."""
-        total_score = self.score['red'] + self.score['blue']
-        self.chaos_level = min(10, total_score // 5)
-
-    def _add_effect(self, effect_type, duration):
-        """Add a new effect."""
-        end_time = datetime.now() + timedelta(seconds=duration)
-        self.active_effects.append({
-            'type': effect_type,
-            'end_time': end_time
-        })
-        logging.info(f"Added effect: {effect_type}, duration: {duration}s")
-
-    # Random event implementations
-    def _reverse_gravity(self):
-        """Reverse gravity effect."""
-        self.gravity_reversed = not self.gravity_reversed
-        self._add_effect('gravity', 10)
-        self.active_event = "GRAVITY REVERSED!"
-
-    def _multiply_scores(self):
-        """Multiply all scores for a period."""
-        self.current_modifier = 2.0
-        self._add_effect('multiplier', 15)
-        self.active_event = "DOUBLE POINTS!"
-
-    def _speed_burst(self):
-        """Increase game speed temporarily."""
-        self._add_effect('speed', 8)
-        self.active_event = "SPEED BURST!"
-
-    def _bonus_powerup(self):
-        """Spawn multiple power-ups."""
-        for _ in range(3):
-            self.spawn_power_up()
-        self.active_event = "POWER-UP FRENZY!"
-
-    def _chaos_mode(self):
-        """Enter temporary chaos mode."""
-        self.chaos_level = 10
-        self._add_effect('chaos', 20)
-        self.active_event = "CHAOS MODE ACTIVATED!"
-
-    def handle_goal(self):
-        """Handle goal scoring with crazy modifiers."""
-        # Apply current score modifier
-        super().handle_goal()
-        
-        if self.current_modifier != 1.0:
-            for team in ['red', 'blue']:
-                self.score[team] = int(self.score[team] * self.current_modifier)
-        
-        # Increase chaos with each goal
-        self.chaos_level = min(10, self.chaos_level + 1)
-        logging.info(f"Goal scored with modifier: {self.current_modifier}, Chaos level: {self.chaos_level}")
-
-    def draw(self):
-        """Draw the crazy play elements."""
-        # Draw appropriate background based on chaos level
-        background_key = 'normal'
-        if self.chaos_level >= 7:
-            background_key = 'extreme'
-        elif self.chaos_level >= 4:
-            background_key = 'chaos'
+        # Quick strike bonus
+        if self.quick_strike_active:
+            points *= 2
+            bonuses.append("QUICK STRIKE!")
+            self.quick_strike_active = False
             
-        if background_key in self.backgrounds:
-            self.screen.blit(self.backgrounds[background_key], (0, 0))
+        # Comeback bonus
+        comeback_bonus = self._calculate_comeback_bonus(team)
+        if comeback_bonus > 0:
+            points += comeback_bonus
+            bonuses.append(f"COMEBACK +{comeback_bonus}!")
+            
+        # Combo bonus
+        if self.combo_count > 0:
+            time_since_last = (current_time - self.last_goal_time).total_seconds()
+            if time_since_last < 10:  # 10 seconds for combo
+                self.combo_count += 1
+                combo_bonus = min(self.combo_count - 1, 3)
+                points += combo_bonus
+                bonuses.append(f"COMBO x{self.combo_count}")
+                self._play_sound('combo')
+            else:
+                self.combo_count = 1
         else:
-            self.screen.fill(self.settings.bg_color)
+            self.combo_count = 1
+            
+        # Final minute frenzy
+        if self.frenzy_mode:
+            points *= 2
+            bonuses.append("FRENZY")
+            
+        # Update score and display
+        self.score[team] += points
+        self.last_goal_time = current_time
+        
+        # Show all active bonuses
+        if bonuses:
+            bonus_text = " + ".join(bonuses)
+            self.active_event = f"{points} POINTS! {bonus_text}"
+        else:
+            self.active_event = f"{points} POINTS!"
 
-        # Draw base game elements
-        super().draw()
+    def _calculate_comeback_bonus(self, team):
+        """Calculate comeback bonus based on score difference and time."""
+        if team == 'red':
+            score_diff = self.score['blue'] - self.score['red']
+        else:
+            score_diff = self.score['red'] - self.score['blue']
+            
+        if score_diff <= 0:
+            return 0
+            
+        # Calculate bonus based on score difference and time remaining
+        # Maximum bonus is 3 points when down by 5+ with less than 25% of period remaining
+        time_factor = min(1.0, (self.settings.period_length - self.clock) / self.settings.period_length * 4)
+        score_factor = min(1.0, score_diff / 5)
+        
+        bonus = round(min(3, score_factor * time_factor * 3))
+        return bonus
 
-        # Draw crazy play specific elements
-        self._draw_crazy_elements()
-
-    def _draw_crazy_elements(self):
-        """Draw elements specific to crazy play mode."""
-        # Draw active effects
-        for effect in self.active_effects:
-            if effect['type'] in self.effect_overlays:
-                self.screen.blit(self.effect_overlays[effect['type']], (0, 0))
-
-        # Draw chaos meter
-        chaos_text = self.font_small.render(
-            f"Chaos Level: {self.chaos_level}", 
-            True, 
-            (255, 0, 0)
-        )
-        chaos_rect = chaos_text.get_rect(
-            center=(self.settings.screen_width // 4, 30)
-        )
-        self.screen.blit(chaos_text, chaos_rect)
-
-        # Draw score modifier if active
-        if self.current_modifier != 1.0:
-            modifier_text = self.font_small.render(
-                f"Score Multiplier: x{self.current_modifier}", 
-                True, 
-                (255, 255, 0)
-            )
-            modifier_rect = modifier_text.get_rect(
-                center=(self.settings.screen_width * 3 // 4, 30)
-            )
-            self.screen.blit(modifier_text, modifier_rect)
+    def _play_sound(self, sound_name):
+        """Play a sound effect with cooldown."""
+        current_time = datetime.now()
+        if (current_time - self.last_sound_time).total_seconds() >= self.sound_cooldown:
+            if sound_name in self.crazy_sounds and self.crazy_sounds[sound_name]:
+                self.crazy_sounds[sound_name].play()
+                self.last_sound_time = current_time
 
     def handle_period_end(self):
-        """Handle the end of a period in crazy play mode."""
+        """Handle the end of a period."""
         super().handle_period_end()
-        
-        # Reset some effects between periods
-        self.gravity_reversed = False
-        self.current_modifier = 1.0
-        self.active_effects = []
-        
-        # But maintain chaos level
-        logging.info(f"Crazy play period {self.period} ended at chaos level {self.chaos_level}")
+        self.first_goal_of_period = True
+        self.frenzy_mode = False
+        self.combo_count = 0
+        self._end_current_event()
 
-    def handle_game_end(self):
-        """Handle game end in crazy play mode."""
-        super().handle_game_end()
+    def _end_current_event(self):
+        """End the current special event."""
+        self.current_goal_value = 1
+        self.event_duration = None
+        if not self.frenzy_mode:  # Don't clear frenzy message
+            self.active_event = None
+
+    def _end_quick_strike(self):
+        """End quick strike challenge."""
+        if self.quick_strike_active:
+            self.quick_strike_active = False
+            self.active_event = "QUICK STRIKE CHALLENGE FAILED!"
+
+    def draw(self):
+        """Draw the game screen with crazy mode elements."""
+        # Draw base game elements
+        super().draw()
         
-        # Calculate crazy play specific statistics
-        max_chaos = getattr(self, 'max_chaos_level', self.chaos_level)
-        total_effects = getattr(self, 'total_effects_triggered', len(self.active_effects))
-        
-        logging.info(f"Crazy play stats - Max Chaos: {max_chaos}, "
-                    f"Total Effects: {total_effects}")
+        # Draw current event/bonus notification
+        if self.active_event:
+            event_text = self.font_large.render(self.active_event, True, (255, 140, 0))
+            event_rect = event_text.get_rect(center=(self.settings.screen_width // 2, 200))
+            self.screen.blit(event_text, event_rect)
+            
+        # Draw quick strike timer if active
+        if self.quick_strike_active:
+            remaining = (self.quick_strike_deadline - datetime.now()).total_seconds()
+            if remaining > 0:
+                timer_text = self.font_small.render(f"QUICK STRIKE: {int(remaining)}s", True, (255, 255, 0))
+                timer_rect = timer_text.get_rect(center=(self.settings.screen_width // 2, 240))
+                self.screen.blit(timer_text, timer_rect)
+
+        # Draw current goal value if different from 1
+        if self.current_goal_value > 1 or self.frenzy_mode:
+            value_text = self.font_small.render("Goals Worth: " + 
+                str(self.current_goal_value * (2 if self.frenzy_mode else 1)) + " Points!",
+                True, (255, 255, 0))
+            value_rect = value_text.get_rect(center=(self.settings.screen_width // 2, 280))
+            self.screen.blit(value_text, value_rect)
 
     def cleanup(self):
-        """Clean up crazy play mode resources."""
+        """Clean up resources."""
         super().cleanup()
-        self.backgrounds = {}
-        self.effect_overlays = {}
-        self.active_effects = []
-        logging.info("Crazy play mode cleanup completed")
+        self.crazy_sounds = {}
