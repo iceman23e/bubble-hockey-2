@@ -1,5 +1,6 @@
 # main.py
 
+import os
 import pygame
 import sys
 import logging
@@ -10,6 +11,10 @@ from game import Game
 from gpio import GPIOHandler
 
 def main():
+    # Initialize touchscreen environment variables
+    os.environ['SDL_MOUSEDEV'] = '/dev/input/touchscreen'
+    os.environ['SDL_MOUSEDRV'] = 'TSLIB'
+
     # Initialize Pygame and logging
     pygame.init()
     logging.basicConfig(level=logging.INFO)
