@@ -117,6 +117,9 @@ sudo apt-get upgrade -y
 echo "Installing required packages..."
 sudo apt-get install -y git python3-pip python3-venv samba
 
+echo "Installing touchscreen dependencies..."
+sudo apt-get install -y libts-bin libts-dev
+
 # Clone the repository
 echo "Cloning the repository..."
 if [ ! -d "$PROJECT_DIR" ]; then
