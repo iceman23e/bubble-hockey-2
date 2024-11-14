@@ -1,3 +1,5 @@
+# crazy_play_mode.py
+
 from base_game_mode import BaseGameMode
 import pygame
 import logging
