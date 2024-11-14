@@ -11,7 +11,9 @@ class CrazyPlayMode(BaseGameMode):
         super().__init__(game)
         logging.info("Crazy Play mode initialized")
         self.load_assets()
-        self.random_sound_timer = 0
+        # Initialize random sound timing variables
+        self.last_random_sound_time = pygame.time.get_ticks() / 1000.0  # Time in seconds
+        self.next_random_sound_interval = self.get_next_random_sound_interval()
 
     def load_assets(self):
         """Load assets specific to Crazy Play mode."""
@@ -29,10 +31,11 @@ class CrazyPlayMode(BaseGameMode):
             dt = self.game.clock.tick(60) / 1000.0
             self.clock -= dt
             # Handle random sounds
-            self.random_sound_timer += dt
-            if self.random_sound_timer >= self.settings.random_sound_frequency:
+            current_time = pygame.time.get_ticks() / 1000.0
+            if current_time - self.last_random_sound_time >= self.next_random_sound_interval:
                 self.play_random_sound()
-                self.random_sound_timer = 0
+                self.last_random_sound_time = current_time
+                self.next_random_sound_interval = self.get_next_random_sound_interval()
         else:
             # Puck not in play; maintain frame rate without decrementing clock
             self.game.clock.tick(60)
@@ -53,3 +56,9 @@ class CrazyPlayMode(BaseGameMode):
             random_sound = random.choice(self.game.sounds['random_sounds'])
             random_sound.play()
             logging.info("Random sound played")
+
+    def get_next_random_sound_interval(self):
+        """Get the next random sound interval."""
+        min_interval = self.game.settings.random_sound_min_interval
+        max_interval = self.game.settings.random_sound_max_interval
+        return random.uniform(min_interval, max_interval)
