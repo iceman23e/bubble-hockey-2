@@ -5,12 +5,14 @@ import os
 import json
 import logging
 import subprocess
+import time
 from settings import Settings
 from database import Database
 from utils import load_image, load_sound
 from classic_mode import ClassicMode
 from evolved_mode import EvolvedMode
 from crazy_play_mode import CrazyPlayMode
+from game_states import GameStateMachine, GameState
 
 class Game:
     def __init__(self, screen, settings, gpio_handler):
@@ -28,13 +30,20 @@ class Game:
         self.sounds_enabled = True
         self.font_small = pygame.font.Font('assets/fonts/Pixellari.ttf', 20)
         self.font_large = pygame.font.Font('assets/fonts/Pixellari.ttf', 40)
-        self.update_available = False  # Flag to indicate if an update is available
-        self.update_notification_rect = None  # Rect for the update notification
-        self.check_for_updates()  # Check for updates on game start
+        self.update_available = False
+        self.update_notification_rect = None
+        self.check_for_updates()
+
+        # Initialize state machine
+        self.state_machine = GameStateMachine(self)
+        
+        # Add event processing timing
+        self.last_event_process = time.monotonic()
+        self.event_process_interval = self.settings.event_process_interval
 
         # Initialize puck possession state
-        self.puck_possession = None  # 'red', 'blue', 'in_play', or None
-        self.countdown = None  # Countdown timer
+        self.puck_possession = None
+        self.countdown = None
         self.countdown_start_time = None
 
         # Set reference to game in gpio_handler
@@ -60,7 +69,6 @@ class Game:
         self.sounds = {
             'taunts': self.load_theme_sounds('taunts', 'assets/sounds/taunts', 5),
             'random_sounds': self.load_theme_sounds('random_sounds', 'assets/sounds/random_sounds', 5),
-            # Load other sounds as needed
         }
 
     def load_theme_font(self, key, default_path, size):
@@ -108,8 +116,7 @@ class Game:
 
     def handle_event(self, event):
         """Handle events for the game."""
-        if self.game_started:
-            # Pass events to gameplay
+        if self.state_machine.state == GameState.PLAYING:
             self.gameplay.handle_event(event)
 
         # Handle update initiation
@@ -121,88 +128,116 @@ class Game:
 
     def update(self):
         """Update the game state."""
-        # Get the puck possession state from gpio_handler
-        self.puck_possession = self.gpio_handler.puck_possession
+        current_time = time.monotonic()
+        
+        # Process GPIO events on regular interval
+        if current_time - self.last_event_process >= self.event_process_interval:
+            self.gpio_handler.process_events()
+            self.last_event_process = current_time
 
-        # Game start logic
-        if not self.game_started:
-            if self.puck_possession == 'in_play':
-                # Start countdown if not already started
-                if self.countdown is None:
-                    self.countdown = 3
-                    self.countdown_start_time = pygame.time.get_ticks()
-                    logging.info("Starting countdown timer")
-                else:
-                    # Update countdown
-                    elapsed_time = (pygame.time.get_ticks() - self.countdown_start_time) / 1000
-                    if elapsed_time >= 1:
-                        self.countdown -= 1
-                        self.countdown_start_time = pygame.time.get_ticks()
-                        if self.countdown <= 0:
-                            # Start the game
-                            self.game_started = True
-                            self.countdown = None
-                            logging.info("Countdown complete. Game starting.")
-                            # Record game start in the database
-                            self.current_game_id = self.db.start_new_game(self.mode)
-            elif self.puck_possession in ('red', 'blue'):
-                # Start the game immediately
-                self.game_started = True
-                logging.info(f"Game starting. Puck possessed by {self.puck_possession} team.")
-                # Record game start in the database
-                self.current_game_id = self.db.start_new_game(self.mode)
-            else:
-                # Waiting for puck
-                pass
-        else:
-            # Game has started, update gameplay
-            self.gameplay.update()
-            if self.gameplay.is_over:
+        # Get the puck possession state from gpio_handler
+        self.puck_possession = self.gpio_handler.get_puck_possession()
+
+        # Update based on current state
+        if self.state_machine.state == GameState.INITIALIZING:
+            if self._check_ready_to_start():
+                self.state_machine.start_game()
+        
+        elif self.state_machine.state == GameState.COUNTDOWN:
+            self._update_countdown()
+        
+        elif self.state_machine.state == GameState.PLAYING:
+            if self.gameplay:
+                self.gameplay.update()
+                if self.gameplay.is_over:
+                    self.state_machine.end_game()
+        
+        elif self.state_machine.state == GameState.ERROR:
+            if not self.state_machine.attempt_recovery():
                 self.is_over = True
-                # Record game end in database
-                self.db.end_game(self.current_game_id, self.gameplay.score)
+                logging.error("Unable to recover from error state")
 
         # Check for updates
         self.check_for_updates()
 
+    def _check_ready_to_start(self):
+        """Check if the game is ready to start."""
+        return (self.puck_possession in ['red', 'blue', 'in_play'] and 
+                self.gpio_handler.are_sensors_healthy())
+
+    def _update_countdown(self):
+        """Update the countdown timer."""
+        if self.countdown is None:
+            self.countdown = 3
+            self.countdown_start_time = pygame.time.get_ticks()
+        else:
+            elapsed_time = (pygame.time.get_ticks() - self.countdown_start_time) / 1000
+            if elapsed_time >= 1:
+                self.countdown -= 1
+                self.countdown_start_time = pygame.time.get_ticks()
+                if self.countdown <= 0:
+                    self.state_machine.transition_to_playing()
+
     def draw(self):
         """Draw the game screen."""
-        if not self.game_started:
-            # Clear the screen
-            self.screen.fill(self.settings.bg_color)
-            # Draw countdown or waiting message
-            if self.countdown is not None:
-                # Display countdown
-                countdown_text = self.font_large.render(str(self.countdown), True, (255, 255, 255))
-                text_rect = countdown_text.get_rect(center=(self.settings.screen_width // 2, self.settings.screen_height // 2))
-                self.screen.blit(countdown_text, text_rect)
-            else:
-                # Display waiting message
-                if self.puck_possession == 'red':
-                    text = "Waiting for Red Team to eject the puck..."
-                elif self.puck_possession == 'blue':
-                    text = "Waiting for Blue Team to eject the puck..."
-                else:
-                    text = "Waiting for puck..."
-                text_surface = self.font_small.render(text, True, (255, 255, 255))
-                text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, self.settings.screen_height // 2))
-                self.screen.blit(text_surface, text_rect)
+        if self.state_machine.state == GameState.INITIALIZING:
+            self._draw_initialization_screen()
+        elif self.state_machine.state == GameState.COUNTDOWN:
+            self._draw_countdown_screen()
+        elif self.state_machine.state == GameState.PLAYING:
+            if self.gameplay:
+                self.gameplay.draw()
+                if self.update_available:
+                    self.display_update_notification()
+        elif self.state_machine.state == GameState.ERROR:
+            self._draw_error_screen()
+
+    def _draw_initialization_screen(self):
+        """Draw the initialization screen."""
+        self.screen.fill(self.settings.bg_color)
+        if self.puck_possession == 'red':
+            text = "Waiting for Red Team to eject the puck..."
+        elif self.puck_possession == 'blue':
+            text = "Waiting for Blue Team to eject the puck..."
         else:
-            # Game has started, draw gameplay
-            self.gameplay.draw()
-            # If an update is available, display the notification
-            if self.update_available:
-                self.display_update_notification()
+            text = "Waiting for puck..."
+        text_surface = self.font_small.render(text, True, (255, 255, 255))
+        text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, 
+                                                 self.settings.screen_height // 2))
+        self.screen.blit(text_surface, text_rect)
+
+    def _draw_countdown_screen(self):
+        """Draw the countdown screen."""
+        self.screen.fill(self.settings.bg_color)
+        if self.countdown is not None:
+            countdown_text = self.font_large.render(str(self.countdown), True, (255, 255, 255))
+            text_rect = countdown_text.get_rect(center=(self.settings.screen_width // 2, 
+                                                      self.settings.screen_height // 2))
+            self.screen.blit(countdown_text, text_rect)
+
+    def _draw_error_screen(self):
+        """Draw the error screen."""
+        self.screen.fill((0, 0, 0))
+        error_text = self.font_large.render("ERROR - Attempting Recovery", True, (255, 0, 0))
+        text_rect = error_text.get_rect(center=(self.settings.screen_width // 2, 
+                                              self.settings.screen_height // 2))
+        self.screen.blit(error_text, text_rect)
 
     def goal_scored(self, team):
         """Handle a goal scored by a team."""
-        if self.game_started and self.gameplay:
+        if self.state_machine.state == GameState.PLAYING and self.gameplay:
             self.gameplay.goal_scored(team)
+            # Record goal event in database
+            if self.current_game_id:
+                self.db.record_goal(self.current_game_id, team)
         else:
-            logging.info("Goal detected before game started.")
+            logging.info("Goal detected outside of active gameplay")
 
     def cleanup(self):
         """Cleanup resources."""
+        # Save final state
+        if self.state_machine.state != GameState.ERROR:
+            self.state_machine.save_state()
         self.db.close()
 
     def check_for_updates(self):
@@ -217,40 +252,44 @@ class Game:
         """Display an update notification on the game screen."""
         notification_text = "Update Available! Tap here to update."
         text_surface = self.font_large.render(notification_text, True, (255, 255, 0))
-        text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, self.settings.screen_height // 2))
+        text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, 
+                                                 self.settings.screen_height // 2))
         self.screen.blit(text_surface, text_rect)
-        self.update_notification_rect = text_rect  # Save rect for event handling
+        self.update_notification_rect = text_rect
 
     def initiate_update(self):
         """Initiate the update process."""
         logging.info('User initiated update from game screen.')
-        # Display updating message
-        updating_text = "Updating... Please wait."
-        text_surface = self.font_large.render(updating_text, True, (255, 255, 255))
-        text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, self.settings.screen_height // 2 + 50))
-        self.screen.blit(text_surface, text_rect)
-        pygame.display.flip()
-        # Perform the update
+        self._draw_updating_screen()
         try:
-            # Navigate to the project directory
-            os.chdir('/home/pi/bubble_hockey')  # Update path if necessary
-            # Pull the latest changes from the repository
+            os.chdir('/home/pi/bubble_hockey')
             subprocess.run(['git', 'pull'], check=True)
-            # Remove the update flag
             if os.path.exists('update_available.flag'):
                 os.remove('update_available.flag')
             logging.info('Game updated successfully.')
-            # Restart the game
             self.restart_game()
         except subprocess.CalledProcessError as e:
             logging.error(f'Update failed: {e}')
-            # Display error message
-            error_text = "Update failed. Check logs."
-            error_surface = self.font_large.render(error_text, True, (255, 0, 0))
-            error_rect = error_surface.get_rect(center=(self.settings.screen_width // 2, self.settings.screen_height // 2 + 100))
-            self.screen.blit(error_surface, error_rect)
-            pygame.display.flip()
-            pygame.time.delay(3000)  # Pause for 3 seconds
+            self._draw_update_error()
+            pygame.time.delay(3000)
+
+    def _draw_updating_screen(self):
+        """Draw the updating screen."""
+        updating_text = "Updating... Please wait."
+        text_surface = self.font_large.render(updating_text, True, (255, 255, 255))
+        text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, 
+                                                 self.settings.screen_height // 2))
+        self.screen.blit(text_surface, text_rect)
+        pygame.display.flip()
+
+    def _draw_update_error(self):
+        """Draw the update error screen."""
+        error_text = "Update failed. Check logs."
+        error_surface = self.font_large.render(error_text, True, (255, 0, 0))
+        error_rect = error_surface.get_rect(center=(self.settings.screen_width // 2, 
+                                                   self.settings.screen_height // 2 + 100))
+        self.screen.blit(error_surface, error_rect)
+        pygame.display.flip()
 
     def restart_game(self):
         """Restart the game application."""
@@ -261,6 +300,7 @@ class Game:
     def get_game_status(self):
         """Return current game status for web display."""
         status = {
+            'state': self.state_machine.state.value,
             'score': self.gameplay.score if self.gameplay else {'red': 0, 'blue': 0},
             'period': self.gameplay.period if self.gameplay else 0,
             'max_periods': self.gameplay.max_periods if self.gameplay else 0,
