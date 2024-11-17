@@ -36,8 +36,18 @@ class CrazyPlayMode(BaseGameMode):
         self.max_periods = 5  # Longer games
         self.clock = self.settings.period_length
         
-        # Load sounds
+        # Load assets and sounds
+        self.load_assets()
         self.load_crazy_sounds()
+        
+        # Initialize random sound timing variables
+        self.last_random_sound_time = datetime.now().timestamp()
+        self.next_random_sound_interval = self.get_next_random_sound_interval()
+    
+    def load_assets(self):
+        """Load assets specific to Crazy Play mode."""
+        self.background_image = pygame.image.load('assets/crazy_play/images/crazy_background.png')
+        # Load other crazy play mode assets
 
     def load_crazy_sounds(self):
         """Load sound effects specific to crazy mode."""
@@ -56,7 +66,7 @@ class CrazyPlayMode(BaseGameMode):
         
         # Check for final frenzy mode
         if not self.frenzy_mode and self.clock <= self.frenzy_window:
-            self._start_final_frenzy()
+            self._start_final_minute_frenzy()
             
         # Check if first goal opportunity has expired
         if self.first_goal_opportunity and (self.settings.period_length - self.clock) > self.first_goal_window:
@@ -73,6 +83,13 @@ class CrazyPlayMode(BaseGameMode):
         # Update event duration
         if self.event_duration and current_time >= self.event_duration:
             self._end_current_event()
+        
+        # Handle random sounds
+        if self.game.sounds_enabled and self.game.sounds.get('random_sounds'):
+            if (current_time - datetime.fromtimestamp(self.last_random_sound_time)).total_seconds() >= self.next_random_sound_interval:
+                self.play_random_sound()
+                self.last_random_sound_time = current_time.timestamp()
+                self.next_random_sound_interval = self.get_next_random_sound_interval()
 
     def _trigger_random_event(self):
         """Trigger a random game event."""
@@ -206,7 +223,7 @@ class CrazyPlayMode(BaseGameMode):
     def handle_period_end(self):
         """Handle the end of a period."""
         super().handle_period_end()
-        self.first_goal_of_period = True
+        self.first_goal_opportunity = True
         self.frenzy_mode = False
         self.combo_count = 0
         self._end_current_event()
@@ -250,6 +267,19 @@ class CrazyPlayMode(BaseGameMode):
                 True, (255, 255, 0))
             value_rect = value_text.get_rect(center=(self.settings.screen_width // 2, 280))
             self.screen.blit(value_text, value_rect)
+
+    def play_random_sound(self):
+        """Play a random sound."""
+        if self.game.sounds_enabled and self.game.sounds.get('random_sounds'):
+            random_sound = random.choice(self.game.sounds['random_sounds'])
+            random_sound.play()
+            logging.info("Random sound played")
+
+    def get_next_random_sound_interval(self):
+        """Get the next random sound interval."""
+        min_interval = self.game.settings.random_sound_min_interval
+        max_interval = self.game.settings.random_sound_max_interval
+        return random.uniform(min_interval, max_interval)
 
     def cleanup(self):
         """Clean up resources."""
