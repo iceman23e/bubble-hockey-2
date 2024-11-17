@@ -6,6 +6,14 @@ import logging
 import random
 from datetime import datetime, timedelta
 
+def load_sound(file_path):
+    """Utility function to load a sound file."""
+    try:
+        return pygame.mixer.Sound(file_path)
+    except pygame.error as e:
+        logging.error(f"Could not load sound file {file_path}: {e}")
+        return None
+
 class CrazyPlayMode(BaseGameMode):
     """Crazy Play mode with exciting but physically implementable features."""
     
@@ -43,11 +51,14 @@ class CrazyPlayMode(BaseGameMode):
         # Initialize random sound timing variables
         self.last_random_sound_time = datetime.now().timestamp()
         self.next_random_sound_interval = self.get_next_random_sound_interval()
-    
+
     def load_assets(self):
         """Load assets specific to Crazy Play mode."""
+        # Ensure that pygame has been initialized before loading images
+        if not pygame.get_init():
+            pygame.init()
         self.background_image = pygame.image.load('assets/crazy_play/images/crazy_background.png')
-        # Load other crazy play mode assets
+        # Load other crazy play mode assets as needed
 
     def load_crazy_sounds(self):
         """Load sound effects specific to crazy mode."""
@@ -86,7 +97,7 @@ class CrazyPlayMode(BaseGameMode):
         
         # Handle random sounds
         if self.game.sounds_enabled and self.game.sounds.get('random_sounds'):
-            if (current_time - datetime.fromtimestamp(self.last_random_sound_time)).total_seconds() >= self.next_random_sound_interval:
+            if (current_time.timestamp() - self.last_random_sound_time) >= self.next_random_sound_interval:
                 self.play_random_sound()
                 self.last_random_sound_time = current_time.timestamp()
                 self.next_random_sound_interval = self.get_next_random_sound_interval()
@@ -99,7 +110,7 @@ class CrazyPlayMode(BaseGameMode):
             self._start_combo_challenge
         ]
         
-        # Don't start new events in final minute
+        # Don't start new events in final frenzy
         if not self.frenzy_mode:
             event = random.choice(events)
             event()
@@ -262,9 +273,8 @@ class CrazyPlayMode(BaseGameMode):
 
         # Draw current goal value if different from 1
         if self.current_goal_value > 1 or self.frenzy_mode:
-            value_text = self.font_small.render("Goals Worth: " + 
-                str(self.current_goal_value * (2 if self.frenzy_mode else 1)) + " Points!",
-                True, (255, 255, 0))
+            goal_value = self.current_goal_value * (2 if self.frenzy_mode else 1)
+            value_text = self.font_small.render(f"Goals Worth: {goal_value} Points!", True, (255, 255, 0))
             value_rect = value_text.get_rect(center=(self.settings.screen_width // 2, 280))
             self.screen.blit(value_text, value_rect)
 
@@ -277,8 +287,8 @@ class CrazyPlayMode(BaseGameMode):
 
     def get_next_random_sound_interval(self):
         """Get the next random sound interval."""
-        min_interval = self.game.settings.random_sound_min_interval
-        max_interval = self.game.settings.random_sound_max_interval
+        min_interval = self.settings.random_sound_min_interval
+        max_interval = self.settings.random_sound_max_interval
         return random.uniform(min_interval, max_interval)
 
     def cleanup(self):
