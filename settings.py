@@ -50,8 +50,8 @@ class Settings:
         # Sound settings
         self.taunts_enabled = True
         self.random_sounds_enabled = True
-        self.random_sound_min_interval = 5
-        self.random_sound_max_interval = 30
+        self.random_sound_min_interval = 5   # Minimum interval in seconds
+        self.random_sound_max_interval = 30  # Maximum interval in seconds
         
         # Combo goal settings
         self.combo_goals_enabled = True
@@ -117,12 +117,14 @@ class Settings:
                     self.current_theme = data.get('current_theme', self.current_theme)
                     self.classic_mode_theme_selection = data.get('classic_mode_theme_selection', self.classic_mode_theme_selection)
                     
-                    # Validate sound interval settings
-                    if self.random_sound_min_interval > self.random_sound_max_interval:
-                        logging.warning("random_sound_min_interval is greater than random_sound_max_interval. Adjusting values.")
-                        self.random_sound_min_interval, self.random_sound_max_interval = (
-                            self.random_sound_max_interval, self.random_sound_min_interval)
-                            
+                    # Other settings
+                    self.clock_tick = 0  # Reset clock tick if necessary
+
+                # Validate sound interval settings
+                if self.random_sound_min_interval > self.random_sound_max_interval:
+                    logging.warning("random_sound_min_interval is greater than random_sound_max_interval. Adjusting values.")
+                    self.random_sound_min_interval, self.random_sound_max_interval = (
+                        self.random_sound_max_interval, self.random_sound_min_interval)
             except json.JSONDecodeError as e:
                 logging.error(f'Error decoding settings file: {e}')
                 logging.info('Using default settings.')
