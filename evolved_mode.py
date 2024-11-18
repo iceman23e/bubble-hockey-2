@@ -45,16 +45,22 @@ class EvolvedMode(BaseGameMode):
             self.combo_indicators = []
 
     def update(self):
-        """Update the game state."""
-        if self.game.state_machine.state != self.game.state_machine.states.PLAYING:
-            return
-
-        # Update base game elements
-        super().update()
+    """Update the game state. Clock only runs when puck is in play."""
+    # Update base game elements
+    super().update()
+    
+    # Clock runs only when puck is in play
+    if self.game.state_machine.state == self.game.state_machine.states.PLAYING:
+        dt = self.game.clock.tick(60) / 1000.0
         
-        # Clock runs only when puck is in play
-        if self.game.puck_possession == 'in_play':
-            dt = self.game.clock.tick(60) / 1000.0
+        # Handle intermission clock if active
+        if self.intermission_clock is not None:
+            self.intermission_clock -= dt
+            if self.intermission_clock <= 0:
+                self.intermission_clock = None
+                logging.info("Intermission ended")
+        elif self.game.puck_possession == 'in_play':
+            self.clock -= dt
             
             # Update timers
             self._update_timers(dt)
@@ -62,9 +68,8 @@ class EvolvedMode(BaseGameMode):
             # Handle automatic features
             self._check_power_up_spawn()
             self._check_taunt_trigger()
-            
         else:
-            # Maintain frame rate without updating game time
+            # Keep normal ticking for frame rate even when clock is stopped
             self.game.clock.tick(60)
 
     def _update_timers(self, dt):
