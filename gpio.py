@@ -1,219 +1,250 @@
 # gpio.py
 
 import RPi.GPIO as GPIO
-from queue import Queue
-from threading import Lock, Event
+import threading
 import time
 import logging
-from collections import deque
+import queue
+import traceback
+import sys
+from typing import Optional, Dict, List
 from dataclasses import dataclass
-from typing import Dict, Deque
+from functools import partial
+from threading import Lock
 
 @dataclass
-class SensorState:
-    """Class to track sensor state and history"""
-    value: bool
-    last_change: float
-    debounce_count: int
-    history: Deque[bool]
-    lock: Lock
+class GPIOConfig:
+    """Configuration parameters for GPIO handling"""
+    debounce_time_ms: int = 300
+    goal_sensor_debounce_ms: int = 300
+    puck_poll_interval_ms: float = 100.0
+    event_timeout_s: float = 1.0
+    thread_shutdown_timeout_s: float = 2.0
+    sensor_history_window_s: float = 1.0
+
+@dataclass
+class SensorEvent:
+    """Data class for sensor events"""
+    pin: int
+    state: bool
+    timestamp: float  # Using monotonic time
+    sensor_name: str
 
 class GPIOHandler:
-    """Class to handle GPIO interactions for the bubble hockey game."""
-
-    def __init__(self, settings):
-        # Initialize GPIO pins
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-
+    """Enhanced GPIO handler with improved error handling and debouncing"""
+    
+    def __init__(self, settings, config: Optional[GPIOConfig] = None):
         self.settings = settings
-        self.event_queue = Queue()
-        self.shutdown_event = Event()
-
-        # Define GPIO pins from settings
-        self.goal_sensor_red = self.settings.gpio_pins['goal_sensor_red']
-        self.goal_sensor_blue = self.settings.gpio_pins['goal_sensor_blue']
-        self.puck_sensor_red = self.settings.gpio_pins['puck_sensor_red']
-        self.puck_sensor_blue = self.settings.gpio_pins['puck_sensor_blue']
-
-        # Initialize sensor states with thread-safe tracking
-        self.sensors: Dict[str, SensorState] = {}
-        self._initialize_sensors()
-
-        # Reference to the game instance
+        self.config = config or GPIOConfig()
         self.game = None
-
-    def _initialize_sensors(self):
-        """Initialize all sensors with default states"""
-        sensor_pins = {
-            'goal_red': self.goal_sensor_red,
-            'goal_blue': self.goal_sensor_blue,
-            'puck_red': self.puck_sensor_red,
-            'puck_blue': self.puck_sensor_blue
-        }
-
-        for name, pin in sensor_pins.items():
-            # Set up GPIO pin
-            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            
-            # Initialize sensor state
-            self.sensors[name] = SensorState(
-                value=False,
-                last_change=time.monotonic(),
-                debounce_count=0,
-                history=deque(maxlen=10),
-                lock=Lock()
-            )
-
-            # Add event detection with hardware debouncing
-            GPIO.add_event_detect(
-                pin,
-                GPIO.FALLING,
-                callback=lambda x, n=name: self._handle_sensor_event(n),
-                bouncetime=50
-            )
-
-    def set_game(self, game):
-        """Set the game instance for callback use."""
-        self.game = game
-
-    def _handle_sensor_event(self, sensor_name: str):
-        """Handle sensor event with software debouncing"""
-        sensor = self.sensors[sensor_name]
         
-        with sensor.lock:
+        # Thread control
+        self._shutdown_event = threading.Event()
+        
+        # Sensor state tracking with thread safety
+        self.puck_possession = None
+        self._last_sensor_states = {
+            'goal_sensor_red': False,
+            'goal_sensor_blue': False,
+            'puck_sensor_red': False,
+            'puck_sensor_blue': False
+        }
+        self._sensor_states_lock = Lock()
+        
+        # Event handling with thread safety
+        self._event_queue = queue.Queue()
+        self._sensor_history: Dict[int, List[SensorEvent]] = {
+            pin: [] for pin in self.settings.gpio_pins.values()
+        }
+        self._history_lock = Lock()
+        
+        # Initialize GPIO system
+        self._initialize_gpio()
+        
+        # Start monitoring threads
+        self._start_monitoring_threads()
+        logging.info("GPIO Handler initialized successfully")
+
+    def _initialize_gpio(self):
+        """Initialize GPIO with error handling"""
+        try:
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setwarnings(False)
+            
+            # Set up pins with error checking
+            for sensor_name, pin in self.settings.gpio_pins.items():
+                try:
+                    GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+                    if sensor_name.startswith('goal_sensor'):
+                        callback = partial(self._sensor_callback, sensor_name=sensor_name)
+                        GPIO.add_event_detect(
+                            pin,
+                            GPIO.FALLING,
+                            callback=callback,
+                            bouncetime=self.config.goal_sensor_debounce_ms
+                        )
+                except (RuntimeError, ValueError) as e:
+                    logging.exception(f"Failed to initialize {sensor_name} on pin {pin}")
+                    raise RuntimeError(f"Critical sensor initialization failed: {sensor_name}") from e
+                    
+        except Exception as e:
+            logging.exception("Fatal GPIO initialization error")
+            raise RuntimeError("GPIO system failed to initialize") from e
+
+    def _start_monitoring_threads(self):
+        """Start the monitoring threads with error handling"""
+        try:
+            # Thread for processing sensor events
+            self.event_thread = threading.Thread(
+                target=self._process_events,
+                name="EventProcessor",
+                daemon=True
+            )
+            self.event_thread.start()
+
+            # Thread for monitoring puck sensors
+            self.puck_thread = threading.Thread(
+                target=self._monitor_puck_sensors,
+                name="PuckMonitor",
+                daemon=True
+            )
+            self.puck_thread.start()
+            
+        except Exception as e:
+            logging.exception("Failed to start monitoring threads")
+            self._shutdown_event.set()
+            raise RuntimeError("Failed to start GPIO monitoring system") from e
+
+    def _sensor_callback(self, channel: int, *, sensor_name: str):
+        """Handle sensor callbacks with improved context"""
+        try:
+            event = SensorEvent(
+                pin=channel,
+                state=GPIO.input(channel),
+                timestamp=time.monotonic(),
+                sensor_name=sensor_name
+            )
+            self._event_queue.put(event, timeout=self.config.event_timeout_s)
+        except queue.Full:
+            logging.error(f"Event queue full, dropped event for {sensor_name}")
+        except Exception as e:
+            logging.exception(f"Sensor callback error on pin {channel}")
+
+    def _is_valid_event(self, event: SensorEvent) -> bool:
+        """Validate sensor events with improved physical validation"""
+        with self._history_lock:
+            history = self._sensor_history[event.pin]
             current_time = time.monotonic()
             
-            # Check software debounce time
-            if (current_time - sensor.last_change) < self.settings.software_debounce_time:
-                return
+            # Clean up old history
+            history = [e for e in history 
+                      if (current_time - e.timestamp) < self.config.sensor_history_window_s]
+            
+            # Validate event timing
+            if history:
+                time_since_last = event.timestamp - history[-1].timestamp
+                if time_since_last < (self.config.debounce_time_ms / 1000):
+                    return False
                 
-            # Get current value and add to history
-            pin = self._get_pin_for_sensor(sensor_name)
-            value = GPIO.input(pin)
-            sensor.history.append(value)
+                # Check for physically impossible rapid goal sequences
+                if event.sensor_name.startswith('goal_sensor'):
+                    goals_in_window = len(history)
+                    if goals_in_window >= 3:  # More than 2 goals in history window
+                        logging.warning(f"Suspicious rapid goal sequence detected on {event.sensor_name}")
+                        return False
             
-            # Check if we have consistent readings
-            if len(sensor.history) >= 3 and all(v == value for v in sensor.history):
-                sensor.value = value
-                sensor.last_change = current_time
-                sensor.debounce_count = 0
-                
-                # Add event to queue for main thread processing
-                self.event_queue.put((sensor_name, value))
-            else:
-                sensor.debounce_count += 1
-                if sensor.debounce_count > 10:
-                    logging.warning(f"Excessive bouncing on sensor {sensor_name}")
-                    self._trigger_diagnostics(sensor_name)
-
-    def _get_pin_for_sensor(self, sensor_name: str) -> int:
-        """Get GPIO pin number for a given sensor name"""
-        pin_map = {
-            'goal_red': self.goal_sensor_red,
-            'goal_blue': self.goal_sensor_blue,
-            'puck_red': self.puck_sensor_red,
-            'puck_blue': self.puck_sensor_blue
-        }
-        return pin_map.get(sensor_name)
-
-    def process_events(self):
-        """Process queued events in main thread"""
-        while not self.event_queue.empty():
-            event_type, event_data = self.event_queue.get()
+            # Update history
+            history.append(event)
+            self._sensor_history[event.pin] = history
             
-            if event_type.startswith('goal_'):
-                team = 'red' if event_type == 'goal_red' else 'blue'
-                self._handle_goal_event(team)
-            elif event_type.startswith('puck_'):
-                self._update_puck_possession()
-            elif event_type == 'diagnostic_needed':
-                self.run_sensor_diagnostics(event_data)
+            return True
 
-    def _handle_goal_event(self, team: str):
-        """Handle goal scored event"""
-        if self.game and self._validate_goal(team):
-            opposite_team = 'blue' if team == 'red' else 'red'
-            self.game.goal_scored(opposite_team)
-            logging.info(f"Goal detected for {opposite_team} team")
+    def _process_events(self):
+        """Process sensor events from the queue with improved shutdown handling"""
+        while not self._shutdown_event.is_set():
+            try:
+                event = self._event_queue.get(timeout=self.config.event_timeout_s)
+                if self._is_valid_event(event):
+                    self._handle_event(event)
+                self._event_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logging.exception("Error processing sensor event")
+                self._shutdown_event.wait(timeout=1.0)  # Longer timeout to reduce CPU usage during errors
 
-    def _validate_goal(self, team: str) -> bool:
-        """Validate that a goal event is legitimate"""
-        sensor = self.sensors[f'goal_{team}']
-        with sensor.lock:
-            # Check recent history for consistent readings
-            if len(sensor.history) < 3:
-                return False
-            return all(sensor.history)
+    def _handle_event(self, event: SensorEvent):
+        """Handle validated sensor events"""
+        try:
+            if event.sensor_name == 'goal_sensor_red':
+                logging.info("Goal detected for blue team")
+                if self.game:
+                    self.game.goal_scored('blue')
+            elif event.sensor_name == 'goal_sensor_blue':
+                logging.info("Goal detected for red team")
+                if self.game:
+                    self.game.goal_scored('red')
+        except Exception as e:
+            logging.exception("Error handling sensor event")
 
-    def _update_puck_possession(self):
-        """Update puck possession state based on sensor readings"""
-        puck_red = self._get_sensor_value('puck_red')
-        puck_blue = self._get_sensor_value('puck_blue')
-
-        if not puck_red and not puck_blue:
-            self.puck_possession = 'in_play'
-        elif puck_red and not puck_blue:
-            self.puck_possession = 'red'
-        elif puck_blue and not puck_red:
-            self.puck_possession = 'blue'
-        else:
-            self.puck_possession = None
-            logging.warning("Invalid puck sensor state detected")
-
-    def _get_sensor_value(self, sensor_name: str) -> bool:
-        """Get the current value of a sensor with thread safety"""
-        sensor = self.sensors[sensor_name]
-        with sensor.lock:
-            return sensor.value
-
-    def get_puck_possession(self) -> str:
-        """Get the current puck possession state"""
-        self._update_puck_possession()
-        return self.puck_possession
-
-    def are_sensors_healthy(self) -> bool:
-        """Check if all sensors are functioning properly"""
-        return all(
-            sensor.debounce_count < self.settings.max_debounce_count
-            for sensor in self.sensors.values()
-        )
-
-    def run_sensor_diagnostics(self, sensor_name: str):
-        """Run diagnostics on a specific sensor"""
-        sensor = self.sensors[sensor_name]
-        with sensor.lock:
-            # Collect diagnostic data
-            diagnostic_data = {
-                'bounce_count': sensor.debounce_count,
-                'history': list(sensor.history),
-                'last_change': sensor.last_change
-            }
-            
-        # Log diagnostic data
-        logging.info(f"Sensor {sensor_name} diagnostics: {diagnostic_data}")
+    def _monitor_puck_sensors(self):
+        """Monitor puck sensors with improved resource management"""
+        poll_interval = self.config.puck_poll_interval_ms / 1000.0
         
-        # Reset sensor if needed
-        if sensor.debounce_count > self.settings.sensor_reset_threshold:
-            self.reset_sensor(sensor_name)
+        while not self._shutdown_event.is_set():
+            try:
+                puck_waiting_red = GPIO.input(self.settings.gpio_pins['puck_sensor_red']) == GPIO.LOW
+                puck_waiting_blue = GPIO.input(self.settings.gpio_pins['puck_sensor_blue']) == GPIO.LOW
 
-    def reset_sensor(self, sensor_name: str):
-        """Reset a sensor's state"""
-        sensor = self.sensors[sensor_name]
-        with sensor.lock:
-            sensor.history.clear()
-            sensor.debounce_count = 0
-            sensor.last_change = time.monotonic()
-        logging.info(f"Reset sensor {sensor_name}")
+                new_possession = self._validate_puck_state(puck_waiting_red, puck_waiting_blue)
+                
+                with self._sensor_states_lock:
+                    if new_possession != self.puck_possession:
+                        self.puck_possession = new_possession
+                        logging.info(f"Puck possession changed to: {new_possession}")
 
-    def reset_sensors(self):
-        """Reset all sensors"""
-        for sensor_name in self.sensors:
-            self.reset_sensor(sensor_name)
-        logging.info("All sensors reset")
+                self._shutdown_event.wait(timeout=poll_interval)
+                
+            except Exception as e:
+                logging.exception("Error in puck monitoring")
+                self._shutdown_event.wait(timeout=poll_interval)
+
+    def _validate_puck_state(self, red: bool, blue: bool) -> str:
+        """Validate and determine puck state with physical possibility checking"""
+        if red and blue:
+            logging.warning("Invalid sensor state: Both puck sensors triggered")
+            return 'unknown'
+        elif not red and not blue:
+            return 'in_play'
+        elif red:
+            return 'red'
+        elif blue:
+            return 'blue'
+        return 'unknown'
+
+    def set_game(self, game):
+        """Set the game instance reference"""
+        self.game = game
 
     def cleanup(self):
-        """Clean up GPIO pins and resources."""
-        self.shutdown_event.set()
-        GPIO.cleanup()
-        logging.info("GPIO cleanup completed")
+        """Clean up GPIO resources with improved thread shutdown"""
+        try:
+            # Signal threads to stop
+            self._shutdown_event.set()
+            
+            # Wait for threads to finish with timeout
+            for thread in [self.event_thread, self.puck_thread]:
+                thread.join(timeout=self.config.thread_shutdown_timeout_s)
+                if thread.is_alive():
+                    thread_id = thread.ident
+                    logging.error(f"Thread {thread.name} (id: {thread_id}) failed to shut down cleanly")
+                    frames = sys._current_frames()
+                    if thread_id in frames:
+                        stack = traceback.format_stack(frames[thread_id])
+                        logging.error(f"Thread {thread.name} stack trace:\n{''.join(stack)}")
+            
+            # Clean up GPIO
+            GPIO.cleanup()
+            logging.info("GPIO cleanup completed successfully")
+        except Exception as e:
+            logging.exception("Error during GPIO cleanup")
