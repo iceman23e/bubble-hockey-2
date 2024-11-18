@@ -23,6 +23,9 @@ class BaseGameMode:
         self.active_event = None
         self.font_small = self.game.font_small
         self.font_large = self.game.font_large
+        # New clock management variables
+        self.in_overtime = False
+        self.intermission_clock = None
 
     def handle_event(self, event):
         """Handle events specific to the game mode."""
@@ -37,7 +40,13 @@ class BaseGameMode:
 
         # Update clock
         dt = self.game.clock.get_time() / 1000.0
-        self.clock -= dt
+        if self.intermission_clock is not None:
+            self.intermission_clock -= dt
+            if self.intermission_clock <= 0:
+                self.intermission_clock = None
+                logging.info("Intermission ended")
+        else:
+            self.clock -= dt
 
         # Handle power-ups
         self._update_power_ups(dt)
@@ -71,19 +80,22 @@ class BaseGameMode:
 
     def _draw_period_info(self):
         """Draw period and time information."""
-        period_text = self.font_small.render(
-            f"Period: {self.period}/{self.max_periods}", 
-            True, 
-            (255, 255, 255)
-        )
+        if self.in_overtime:
+            period_text = self.font_small.render("OVERTIME", True, (255, 255, 255))
+        else:
+            period_text = self.font_small.render(
+                f"Period: {self.period}/{self.max_periods}", 
+                True, 
+                (255, 255, 255)
+            )
         period_rect = period_text.get_rect(center=(self.settings.screen_width // 2, 100))
         self.screen.blit(period_text, period_rect)
 
-        clock_text = self.font_small.render(
-            f"Time Remaining: {int(self.clock)}s", 
-            True, 
-            (255, 255, 255)
-        )
+        if self.intermission_clock is not None:
+            time_text = f"Intermission: {int(self.intermission_clock)}s"
+        else:
+            time_text = f"Time Remaining: {int(self.clock)}s"
+        clock_text = self.font_small.render(time_text, True, (255, 255, 255))
         clock_rect = clock_text.get_rect(center=(self.settings.screen_width // 2, 130))
         self.screen.blit(clock_text, clock_rect)
 
@@ -154,7 +166,16 @@ class BaseGameMode:
         if self.period < self.max_periods:
             self.period += 1
             self.clock = self.settings.period_length
+            self.intermission_clock = self.settings.intermission_length
             logging.info(f"Starting period {self.period}")
+            if self.game.state_machine.can('start_intermission'):
+                self.game.state_machine.start_intermission()
+        elif not self.in_overtime and self.score['red'] == self.score['blue']:
+            # Start overtime
+            self.in_overtime = True
+            self.clock = self.settings.overtime_length
+            self.intermission_clock = self.settings.intermission_length
+            logging.info("Game tied - going to overtime")
             if self.game.state_machine.can('start_intermission'):
                 self.game.state_machine.start_intermission()
         else:
