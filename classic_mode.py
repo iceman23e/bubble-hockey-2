@@ -18,6 +18,8 @@ class ClassicMode(BaseGameMode):
         # Set classic mode timing
         self.clock = self.settings.period_length
         self.max_periods = 3  # Standard hockey game length
+        # Add new clock management variables
+        self.intermission_clock = None
 
     def load_assets(self):
         """Load assets specific to Classic mode."""
@@ -34,7 +36,14 @@ class ClassicMode(BaseGameMode):
         if self.game.state_machine.state == self.game.state_machine.states.PLAYING:
             # Always update clock in classic mode
             dt = self.game.clock.tick(60) / 1000.0
-            self.clock -= dt
+            
+            if self.intermission_clock is not None:
+                self.intermission_clock -= dt
+                if self.intermission_clock <= 0:
+                    self.intermission_clock = None
+                    logging.info("Intermission ended")
+            else:
+                self.clock -= dt
             
             if self.clock <= 0:
                 if self.game.state_machine.can('end_period'):
