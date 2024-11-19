@@ -71,6 +71,23 @@ class CrazyPlayMode(BaseGameMode):
 
     def update(self):
         """Update the game state."""
+        # Handle clock updates based on puck possession
+        if self.game.puck_possession == 'in_play':
+            dt = self.game.clock.tick(60) / 1000.0
+            
+            # Handle intermission clock if active
+            if self.intermission_clock is not None:
+                self.intermission_clock -= dt
+                if self.intermission_clock <= 0:
+                    self.intermission_clock = None
+                    logging.info("Intermission ended")
+            else:
+                self.clock -= dt
+    
+        else:
+            # Maintain frame rate without decrementing clock
+            self.game.clock.tick(60)
+        
         super().update()
         
         current_time = datetime.now()
