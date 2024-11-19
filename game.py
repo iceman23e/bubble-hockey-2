@@ -5,14 +5,18 @@ import os
 import json
 import logging
 import subprocess
+import sys
 import time
+from datetime import datetime
 from settings import Settings
 from database import Database
 from utils import load_image, load_sound
 from classic_mode import ClassicMode
 from evolved_mode import EvolvedMode
 from crazy_play_mode import CrazyPlayMode
-from game_states import GameStateMachine, GameState
+from game_states import GameStates
+from state_machine import GameStateMachine
+from game_analytics import GameAnalytics, GameState, AnalyticsConfig
 
 class Game:
     def __init__(self, screen, settings, gpio_handler):
@@ -22,32 +26,61 @@ class Game:
         self.clock = pygame.time.Clock()
         self.db = Database()
         self.current_game_id = None
+        
+        # Initialize state machine
+        self.state_machine = GameStateMachine(initial=GameStates.PREGAME)
+        
+        # Initialize analytics with configuration
+        analytics_config = AnalyticsConfig(
+            min_games_basic=30,
+            min_games_advanced=300,
+            momentum_window=60,
+            quick_response_window=30,
+            scoring_run_threshold=3,
+            cache_size=128,
+            critical_moment_threshold=60.0,
+            close_game_threshold=2
+        )
+        self.analytics = GameAnalytics(self.db, config=analytics_config)
+        self.current_analysis = None
+        
         self.load_assets()
         self.mode = None
         self.gameplay = None
         self.is_over = False
         self.game_started = False
         self.sounds_enabled = True
-        self.font_small = pygame.font.Font('assets/fonts/Pixellari.ttf', 20)
-        self.font_large = pygame.font.Font('assets/fonts/Pixellari.ttf', 40)
+        
+        # Initialize fonts
+        self.load_fonts()
+        
         self.update_available = False
         self.update_notification_rect = None
         self.check_for_updates()
-
-        # Initialize state machine
-        self.state_machine = GameStateMachine(self)
-        
-        # Add event processing timing
-        self.last_event_process = time.monotonic()
-        self.event_process_interval = self.settings.event_process_interval
 
         # Initialize puck possession state
         self.puck_possession = None
         self.countdown = None
         self.countdown_start_time = None
 
+        # GPIO event processing timing
+        self.event_process_interval = 0.01  # 10ms interval
+        self.last_event_process = time.monotonic()
+
         # Set reference to game in gpio_handler
         self.gpio_handler.set_game(self)
+
+    def load_fonts(self):
+        """Load all required fonts"""
+        try:
+            self.font_small = pygame.font.Font('assets/fonts/Pixellari.ttf', 20)
+            self.font_large = pygame.font.Font('assets/fonts/Pixellari.ttf', 40)
+            self.font_title = pygame.font.Font('assets/fonts/PressStart2P-Regular.ttf', 36)
+            self.font_msdos = pygame.font.Font('assets/fonts/Perfect DOS VGA 437.ttf', 24)
+            self.font_matrix = pygame.font.Font('assets/fonts/VCR_OSD_MONO_1.001.ttf', 24)
+        except Exception as e:
+            logging.error(f"Error loading fonts: {e}")
+            sys.exit(1)
 
     def load_assets(self):
         """Load all necessary assets for the game."""
@@ -69,8 +102,12 @@ class Game:
         self.sounds = {
             'taunts': self.load_theme_sounds('taunts', 'assets/sounds/taunts', 5),
             'random_sounds': self.load_theme_sounds('random_sounds', 'assets/sounds/random_sounds', 5),
+            'goal': load_sound('assets/sounds/goal_scored.wav'),
+            'period_start': load_sound('assets/sounds/period_start.wav'),
+            'period_end': load_sound('assets/sounds/period_end.wav'),
+            'game_over': load_sound('assets/sounds/game_over.wav')
         }
-
+    
     def load_theme_font(self, key, default_path, size):
         """Load a font from the theme, or use the default if not specified."""
         if key in self.theme_data.get('assets', {}):
@@ -112,133 +149,324 @@ class Game:
         else:
             logging.error(f'Unknown game mode: {mode}')
             return
+        
+        # Initialize state machine for new game
+        self.state_machine.reset()
         logging.info(f"Game mode set to {mode}")
 
     def handle_event(self, event):
         """Handle events for the game."""
-        if self.state_machine.state == GameState.PLAYING:
+        if self.game_started:
+            # Handle state machine transitions
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_p and self.state_machine.can('pause_game'):
+                    self.state_machine.pause_game()
+                elif event.key == pygame.K_p and self.state_machine.can('resume_game'):
+                    self.state_machine.resume_game()
+                    
+            # Pass events to gameplay
             self.gameplay.handle_event(event)
 
-        # Handle update initiation
+        # Handle update notification
         if self.update_available:
             if event.type == pygame.MOUSEBUTTONDOWN:
                 pos = pygame.mouse.get_pos()
                 if self.update_notification_rect and self.update_notification_rect.collidepoint(pos):
                     self.initiate_update()
 
+    def _get_current_game_state(self) -> GameState:
+        """Create GameState object from current game state"""
+        return GameState(
+            score=self.gameplay.score if self.gameplay else {'red': 0, 'blue': 0},
+            period=self.gameplay.period if self.gameplay else 1,
+            clock=self.gameplay.clock if self.gameplay else 0,
+            game_id=self.current_game_id,
+            mode=self.mode,
+            is_running_clock=isinstance(self.gameplay, (EvolvedMode, CrazyPlayMode)),
+            max_periods=self.gameplay.max_periods if self.gameplay else 3,
+            period_length=self.settings.period_length
+        )
+
     def update(self):
         """Update the game state."""
-        current_time = time.monotonic()
-        
+        # Get the puck possession state from gpio_handler
+        self.puck_possession = self.gpio_handler.puck_possession
+
         # Process GPIO events on regular interval
+        current_time = time.monotonic()
         if current_time - self.last_event_process >= self.event_process_interval:
             self.gpio_handler.process_events()
             self.last_event_process = current_time
 
-        # Get the puck possession state from gpio_handler
-        self.puck_possession = self.gpio_handler.get_puck_possession()
-
-        # Update based on current state
-        if self.state_machine.state == GameState.INITIALIZING:
-            if self._check_ready_to_start():
-                self.state_machine.start_game()
-        
-        elif self.state_machine.state == GameState.COUNTDOWN:
-            self._update_countdown()
-        
-        elif self.state_machine.state == GameState.PLAYING:
-            if self.gameplay:
-                self.gameplay.update()
-                if self.gameplay.is_over:
-                    self.state_machine.end_game()
-        
-        elif self.state_machine.state == GameState.ERROR:
-            if not self.state_machine.attempt_recovery():
-                self.is_over = True
-                logging.error("Unable to recover from error state")
+        # Update game state based on current state machine state
+        if self.state_machine.state == GameStates.PREGAME:
+            self._handle_pregame()
+        elif self.state_machine.state == GameStates.PLAYING:
+            self._handle_playing()
+        elif self.state_machine.state == GameStates.PAUSED:
+            self._handle_paused()
+        elif self.state_machine.state == GameStates.INTERMISSION:
+            self._handle_intermission()
+        elif self.state_machine.state == GameStates.GAME_OVER:
+            self._handle_game_over()
 
         # Check for updates
         self.check_for_updates()
 
-    def _check_ready_to_start(self):
-        """Check if the game is ready to start."""
-        return (self.puck_possession in ['red', 'blue', 'in_play'] and 
-                self.gpio_handler.are_sensors_healthy())
+    def _handle_pregame(self):
+        """Handle pregame state"""
+        if not self.game_started:
+            if self.puck_possession == 'in_play':
+                if self.countdown is None:
+                    self._start_countdown()
+                else:
+                    self._update_countdown()
+            elif self.puck_possession in ('red', 'blue'):
+                self._start_game()
+
+    def _handle_playing(self):
+        """Handle playing state"""
+        # Update gameplay
+        self.gameplay.update()
+        
+        # Update analytics
+        if self.gameplay:
+            self.current_analysis = self.analytics.update(self._get_current_game_state())
+            
+            # Check if game is over
+            if self.gameplay.is_over:
+                self.is_over = True
+                if self.state_machine.can('end_game'):
+                    self.state_machine.end_game()
+                # Record game end in database
+                self.db.end_game(self.current_game_id, self.gameplay.score)
+    
+    def _handle_paused(self):
+        """Handle paused state"""
+        # Update analytics with paused state
+        if self.gameplay:
+            game_state = self._get_current_game_state()
+            self.current_analysis = self.analytics.update(game_state)
+
+    def _handle_intermission(self):
+        """Handle intermission state"""
+        if self.gameplay:
+            if self.gameplay.intermission_clock is not None:
+                if self.gameplay.intermission_clock <= 0:
+                    if self.state_machine.can('resume_game'):
+                        self.state_machine.resume_game()
+            
+            # Update analytics during intermission
+            game_state = self._get_current_game_state()
+            self.current_analysis = self.analytics.update(game_state)
+
+    def _handle_game_over(self):
+        """Handle game over state"""
+        # Final analytics update
+        if self.gameplay:
+            game_state = self._get_current_game_state()
+            self.current_analysis = self.analytics.update(game_state)
+
+    def _start_countdown(self):
+        """Start the countdown timer"""
+        self.countdown = 3
+        self.countdown_start_time = pygame.time.get_ticks()
+        logging.info("Starting countdown timer")
 
     def _update_countdown(self):
-        """Update the countdown timer."""
-        if self.countdown is None:
-            self.countdown = 3
+        """Update the countdown timer"""
+        elapsed_time = (pygame.time.get_ticks() - self.countdown_start_time) / 1000
+        if elapsed_time >= 1:
+            self.countdown -= 1
             self.countdown_start_time = pygame.time.get_ticks()
-        else:
-            elapsed_time = (pygame.time.get_ticks() - self.countdown_start_time) / 1000
-            if elapsed_time >= 1:
-                self.countdown -= 1
-                self.countdown_start_time = pygame.time.get_ticks()
-                if self.countdown <= 0:
-                    self.state_machine.transition_to_playing()
+            if self.countdown <= 0:
+                self._start_game()
+
+    def _start_game(self):
+        """Start the game"""
+        self.game_started = True
+        self.countdown = None
+        logging.info(f"Game starting. Puck possessed by {self.puck_possession} team.")
+        
+        # Record game start in database
+        self.current_game_id = self.db.start_new_game(self.mode)
+        
+        # Initialize analytics with starting state
+        initial_state = self._get_current_game_state()
+        self.current_analysis = self.analytics.update(initial_state)
+        
+        # Transition state machine to playing
+        if self.state_machine.can('start_game'):
+            self.state_machine.start_game()
+            if self.sounds['period_start']:
+                self.sounds['period_start'].play()
+
+    def goal_scored(self, team):
+        """Handle a goal scored by a team."""
+        if not self.game_started:
+            logging.info("Goal detected before game started.")
+            return
+            
+        if self.state_machine.state != GameStates.PLAYING:
+            logging.info("Goal scored while game not in playing state.")
+            return
+            
+        if self.gameplay:
+            # Update gameplay
+            self.gameplay.goal_scored(team)
+            
+            # Play goal sound
+            if self.sounds['goal']:
+                self.sounds['goal'].play()
+            
+            # Update analytics
+            game_state = self._get_current_game_state()
+            self.current_analysis = self.analytics.record_goal(team, game_state)
+            
+            # Handle critical moments
+            if self.current_analysis['is_critical_moment']:
+                self._handle_critical_moment()
+
+    def _handle_critical_moment(self):
+        """Handle critical game moments"""
+        if self.gameplay and hasattr(self.gameplay, 'handle_critical_moment'):
+            self.gameplay.handle_critical_moment(self.current_analysis)
 
     def draw(self):
         """Draw the game screen."""
-        if self.state_machine.state == GameState.INITIALIZING:
-            self._draw_initialization_screen()
-        elif self.state_machine.state == GameState.COUNTDOWN:
-            self._draw_countdown_screen()
-        elif self.state_machine.state == GameState.PLAYING:
-            if self.gameplay:
-                self.gameplay.draw()
-                if self.update_available:
-                    self.display_update_notification()
-        elif self.state_machine.state == GameState.ERROR:
-            self._draw_error_screen()
-
-    def _draw_initialization_screen(self):
-        """Draw the initialization screen."""
+        # Clear screen
         self.screen.fill(self.settings.bg_color)
+
+        if self.state_machine.state == GameStates.PREGAME:
+            self._draw_pregame()
+        elif self.state_machine.state == GameStates.PLAYING:
+            self._draw_playing()
+        elif self.state_machine.state == GameStates.PAUSED:
+            self._draw_paused()
+        elif self.state_machine.state == GameStates.INTERMISSION:
+            self._draw_intermission()
+        elif self.state_machine.state == GameStates.GAME_OVER:
+            self._draw_game_over()
+
+        # Draw update notification if available
+        if self.update_available:
+            self.display_update_notification()
+
+    def _draw_pregame(self):
+        """Draw the pre-game screen"""
+        if self.countdown is not None:
+            self._draw_countdown()
+        else:
+            self._draw_waiting_message()
+
+    def _draw_playing(self):
+        """Draw the playing state"""
+        # Draw gameplay
+        if self.gameplay:
+            self.gameplay.draw()
+            
+            # Draw analytics overlay if enabled
+            if self.settings.show_analytics_overlay:
+                self._draw_analytics_overlay()
+
+    def _draw_paused(self):
+        """Draw the paused state"""
+        # Draw gameplay in background
+        if self.gameplay:
+            self.gameplay.draw()
+        
+        # Draw pause overlay
+        pause_text = self.font_large.render("GAME PAUSED", True, (255, 255, 255))
+        text_rect = pause_text.get_rect(center=(self.settings.screen_width // 2, 
+                                              self.settings.screen_height // 2))
+        self.screen.blit(pause_text, text_rect)
+
+    def _draw_intermission(self):
+        """Draw the intermission state"""
+        if self.gameplay:
+            # Draw gameplay in background
+            self.gameplay.draw()
+            
+            # Draw intermission overlay
+            if self.gameplay.intermission_clock is not None:
+                time_text = f"Intermission: {int(self.gameplay.intermission_clock)}s"
+                time_surface = self.font_large.render(time_text, True, (255, 255, 255))
+                time_rect = time_surface.get_rect(center=(self.settings.screen_width // 2, 
+                                                        self.settings.screen_height // 2))
+                self.screen.blit(time_surface, time_rect)
+
+    def _draw_game_over(self):
+        """Draw the game over state"""
+        if self.gameplay:
+            # Draw final game state
+            self.gameplay.draw()
+            
+            # Draw game over overlay
+            game_over_text = self.font_large.render("GAME OVER", True, (255, 255, 255))
+            text_rect = game_over_text.get_rect(center=(self.settings.screen_width // 2, 
+                                                      self.settings.screen_height // 2 - 40))
+            self.screen.blit(game_over_text, text_rect)
+            
+            # Draw winner
+            if self.gameplay.score['red'] > self.gameplay.score['blue']:
+                winner = "RED TEAM WINS!"
+            elif self.gameplay.score['blue'] > self.gameplay.score['red']:
+                winner = "BLUE TEAM WINS!"
+            else:
+                winner = "IT'S A TIE!"
+                
+            winner_text = self.font_large.render(winner, True, (255, 255, 255))
+            winner_rect = winner_text.get_rect(center=(self.settings.screen_width // 2, 
+                                                     self.settings.screen_height // 2 + 40))
+            self.screen.blit(winner_text, winner_rect)
+
+            if self.sounds['game_over']:
+                self.sounds['game_over'].play()
+
+    def _draw_countdown(self):
+        """Draw the countdown timer"""
+        countdown_text = self.font_large.render(str(self.countdown), True, (255, 255, 255))
+        text_rect = countdown_text.get_rect(center=(self.settings.screen_width // 2, 
+                                                  self.settings.screen_height // 2))
+        self.screen.blit(countdown_text, text_rect)
+
+    def _draw_waiting_message(self):
+        """Draw the waiting message"""
         if self.puck_possession == 'red':
             text = "Waiting for Red Team to eject the puck..."
         elif self.puck_possession == 'blue':
             text = "Waiting for Blue Team to eject the puck..."
         else:
             text = "Waiting for puck..."
+            
         text_surface = self.font_small.render(text, True, (255, 255, 255))
         text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, 
-                                                 self.settings.screen_height // 2))
+                                                self.settings.screen_height // 2))
         self.screen.blit(text_surface, text_rect)
 
-    def _draw_countdown_screen(self):
-        """Draw the countdown screen."""
-        self.screen.fill(self.settings.bg_color)
-        if self.countdown is not None:
-            countdown_text = self.font_large.render(str(self.countdown), True, (255, 255, 255))
-            text_rect = countdown_text.get_rect(center=(self.settings.screen_width // 2, 
-                                                      self.settings.screen_height // 2))
-            self.screen.blit(countdown_text, text_rect)
-
-    def _draw_error_screen(self):
-        """Draw the error screen."""
-        self.screen.fill((0, 0, 0))
-        error_text = self.font_large.render("ERROR - Attempting Recovery", True, (255, 0, 0))
-        text_rect = error_text.get_rect(center=(self.settings.screen_width // 2, 
-                                              self.settings.screen_height // 2))
-        self.screen.blit(error_text, text_rect)
-
-    def goal_scored(self, team):
-        """Handle a goal scored by a team."""
-        if self.state_machine.state == GameState.PLAYING and self.gameplay:
-            self.gameplay.goal_scored(team)
-            # Record goal event in database
-            if self.current_game_id:
-                self.db.record_goal(self.current_game_id, team)
-        else:
-            logging.info("Goal detected outside of active gameplay")
-
-    def cleanup(self):
-        """Cleanup resources."""
-        # Save final state
-        if self.state_machine.state != GameState.ERROR:
-            self.state_machine.save_state()
-        self.db.close()
+    def _draw_analytics_overlay(self):
+        """Draw analytics overlay"""
+        if not self.current_analysis:
+            return
+            
+        # Draw win probability
+        win_prob = self.current_analysis['win_probability']
+        prob_text = f"Win Probability: Red {win_prob['red']:.1%} - Blue {win_prob['blue']:.1%}"
+        prob_surface = self.font_small.render(prob_text, True, (255, 255, 255))
+        self.screen.blit(prob_surface, (10, 10))
+        
+        # Draw momentum indicator
+        momentum = self.current_analysis['momentum']['current_state']
+        if momentum['team']:
+            momentum_text = f"Momentum: {momentum['team'].upper()} ({momentum['intensity']})"
+            momentum_surface = self.font_small.render(momentum_text, True, (255, 140, 0))
+            self.screen.blit(momentum_surface, (10, 40))
+            
+        # Draw critical moment indicator
+        if self.current_analysis['is_critical_moment']:
+            critical_text = "CRITICAL MOMENT!"
+            critical_surface = self.font_small.render(critical_text, True, (255, 0, 0))
+            self.screen.blit(critical_surface, (10, 70))
 
     def check_for_updates(self):
         """Check if an update is available by looking for the flag file."""
@@ -253,43 +481,43 @@ class Game:
         notification_text = "Update Available! Tap here to update."
         text_surface = self.font_large.render(notification_text, True, (255, 255, 0))
         text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, 
-                                                 self.settings.screen_height // 2))
+                                                self.settings.screen_height // 2))
         self.screen.blit(text_surface, text_rect)
         self.update_notification_rect = text_rect
 
     def initiate_update(self):
         """Initiate the update process."""
         logging.info('User initiated update from game screen.')
-        self._draw_updating_screen()
-        try:
-            os.chdir('/home/pi/bubble_hockey')
-            subprocess.run(['git', 'pull'], check=True)
-            if os.path.exists('update_available.flag'):
-                os.remove('update_available.flag')
-            logging.info('Game updated successfully.')
-            self.restart_game()
-        except subprocess.CalledProcessError as e:
-            logging.error(f'Update failed: {e}')
-            self._draw_update_error()
-            pygame.time.delay(3000)
-
-    def _draw_updating_screen(self):
-        """Draw the updating screen."""
+        # Display updating message
         updating_text = "Updating... Please wait."
         text_surface = self.font_large.render(updating_text, True, (255, 255, 255))
         text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, 
-                                                 self.settings.screen_height // 2))
+                                                self.settings.screen_height // 2))
         self.screen.blit(text_surface, text_rect)
         pygame.display.flip()
-
-    def _draw_update_error(self):
-        """Draw the update error screen."""
-        error_text = "Update failed. Check logs."
-        error_surface = self.font_large.render(error_text, True, (255, 0, 0))
-        error_rect = error_surface.get_rect(center=(self.settings.screen_width // 2, 
-                                                   self.settings.screen_height // 2 + 100))
-        self.screen.blit(error_surface, error_rect)
-        pygame.display.flip()
+        
+        # Perform the update
+        try:
+            # Navigate to the project directory
+            os.chdir('/home/pi/bubble_hockey')
+            # Pull the latest changes from the repository
+            subprocess.run(['git', 'pull'], check=True)
+            # Remove the update flag
+            if os.path.exists('update_available.flag'):
+                os.remove('update_available.flag')
+            logging.info('Game updated successfully.')
+            # Restart the game
+            self.restart_game()
+        except subprocess.CalledProcessError as e:
+            logging.error(f'Update failed: {e}')
+            # Display error message
+            error_text = "Update failed. Check logs."
+            error_surface = self.font_large.render(error_text, True, (255, 0, 0))
+            error_rect = error_surface.get_rect(center=(self.settings.screen_width // 2, 
+                                                      self.settings.screen_height // 2 + 100))
+            self.screen.blit(error_surface, error_rect)
+            pygame.display.flip()
+            pygame.time.delay(3000)  # Pause for 3 seconds
 
     def restart_game(self):
         """Restart the game application."""
@@ -300,11 +528,28 @@ class Game:
     def get_game_status(self):
         """Return current game status for web display."""
         status = {
-            'state': self.state_machine.state.value,
             'score': self.gameplay.score if self.gameplay else {'red': 0, 'blue': 0},
             'period': self.gameplay.period if self.gameplay else 0,
             'max_periods': self.gameplay.max_periods if self.gameplay else 0,
             'clock': self.gameplay.clock if self.gameplay else 0,
+            'game_state': self.state_machine.state.value,
             'active_event': getattr(self.gameplay, 'active_event', None)
         }
+        
+        # Add analytics data if available
+        if self.current_analysis:
+            status['analytics'] = {
+                'win_probability': self.current_analysis['win_probability'],
+                'momentum': self.current_analysis['momentum']['current_state'],
+                'is_critical_moment': self.current_analysis['is_critical_moment']
+            }
+            
         return status
+
+    def cleanup(self):
+        """Cleanup resources."""
+        if self.analytics:
+            self.analytics.cleanup()
+        if self.db:
+            self.db.close()
+        logging.info('Game resources cleaned up')
