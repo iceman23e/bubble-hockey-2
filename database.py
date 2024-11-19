@@ -3,18 +3,21 @@
 import sqlite3
 import logging
 import json
-from datetime import datetime
 import os
+from datetime import datetime
+from typing import Dict, List, Optional, Union, Any
 
 class Database:
     def __init__(self):
         # Ensure database directory exists
         os.makedirs('database', exist_ok=True)
+        
         self.conn = sqlite3.connect('database/bubble_hockey.db', check_same_thread=False)
         self.cursor = self.conn.cursor()
         self.create_tables()
 
     def create_tables(self):
+        """Create all necessary database tables"""
         # Create users table
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
@@ -23,7 +26,7 @@ class Database:
                 avatar TEXT
             )
         ''')
-        
+
         # Create game_stats table
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS game_stats (
@@ -38,7 +41,7 @@ class Database:
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
         ''')
-        
+
         # Create game_history table
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS game_history (
@@ -56,7 +59,7 @@ class Database:
                 FOREIGN KEY(winner_id) REFERENCES users(id)
             )
         ''')
-        
+
         # Create goal_events table
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS goal_events (
@@ -68,35 +71,47 @@ class Database:
             )
         ''')
 
-        # Create state_history table
+        # Create analytics_history table
         self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS state_history (
+            CREATE TABLE IF NOT EXISTS analytics_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 game_id INTEGER,
-                state TEXT,
                 timestamp TEXT,
-                state_data TEXT,
+                win_probability_red REAL,
+                win_probability_blue REAL,
+                momentum_team TEXT,
+                momentum_score REAL,
+                momentum_intensity TEXT,
+                is_critical_moment BOOLEAN,
+                period INTEGER,
+                time_remaining REAL,
+                score_red INTEGER,
+                score_blue INTEGER,
                 FOREIGN KEY(game_id) REFERENCES game_history(id)
             )
         ''')
 
-        # Create diagnostics_log table
+        # Create scoring_patterns table
         self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS diagnostics_log (
+            CREATE TABLE IF NOT EXISTS scoring_patterns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
-                sensor_name TEXT,
-                event_type TEXT,
-                data TEXT
+                game_id INTEGER,
+                pattern_type TEXT,
+                team TEXT,
+                start_time REAL,
+                end_time REAL,
+                goals_count INTEGER,
+                pattern_data TEXT,
+                FOREIGN KEY(game_id) REFERENCES game_history(id)
             )
         ''')
 
         self.conn.commit()
 
-    def start_new_game(self, mode):
-        """Start a new game and return the game ID."""
+    def start_new_game(self, mode: str) -> int:
+        """Start a new game and return the game ID"""
+        date_time = datetime.now().isoformat()
         try:
-            date_time = datetime.now().isoformat()
             self.cursor.execute('''
                 INSERT INTO game_history (date_time, mode)
                 VALUES (?, ?)
@@ -105,147 +120,197 @@ class Database:
             return self.cursor.lastrowid
         except sqlite3.Error as e:
             logging.error(f"Error starting new game: {e}")
-            return None
+            return -1
 
-    def end_game(self, game_id, score):
-        """End a game with final scores."""
+    def end_game(self, game_id: int, score: Dict[str, int]):
+        """Update the game history with the final score"""
         try:
-            duration = self._calculate_game_duration(game_id)
-            winner_id = self._determine_winner(score)
-            
             self.cursor.execute('''
                 UPDATE game_history
-                SET score_red = ?, score_blue = ?, duration = ?, winner_id = ?
+                SET score_red = ?, score_blue = ?
                 WHERE id = ?
-            ''', (score['red'], score['blue'], duration, winner_id, game_id))
+            ''', (score['red'], score['blue'], game_id))
             self.conn.commit()
-            
-            logging.info(f"Game {game_id} ended with scores: Red {score['red']}, Blue {score['blue']}")
         except sqlite3.Error as e:
             logging.error(f"Error ending game: {e}")
 
-    def record_goal(self, game_id, team):
-        """Record a goal event."""
+    def record_goal(self, game_id: int, team: str, time: float):
+        """Record a goal event"""
         try:
             self.cursor.execute('''
                 INSERT INTO goal_events (game_id, team, time)
                 VALUES (?, ?, ?)
-            ''', (game_id, team, datetime.now().isoformat()))
+            ''', (game_id, team, time))
             self.conn.commit()
-            logging.info(f"Goal recorded for {team} team in game {game_id}")
         except sqlite3.Error as e:
             logging.error(f"Error recording goal: {e}")
 
-    def save_game_state(self, game_id, state_data):
-        """Save current game state."""
+    def save_game_state(self, game_id: int, analysis_data: Dict[str, Any]):
+        """Save analytics data for the current game state"""
         try:
+            analytics = analysis_data['analysis']
             self.cursor.execute('''
-                INSERT INTO state_history (game_id, state, timestamp, state_data)
-                VALUES (?, ?, ?, ?)
-            ''', (game_id, state_data['state'], datetime.now().isoformat(), 
-                  json.dumps(state_data)))
+                INSERT INTO analytics_history (
+                    game_id, timestamp, win_probability_red, win_probability_blue,
+                    momentum_team, momentum_score, momentum_intensity,
+                    is_critical_moment, period, time_remaining, score_red, score_blue
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                game_id,
+                analysis_data['timestamp'],
+                analytics['win_probability']['red'],
+                analytics['win_probability']['blue'],
+                analytics['momentum']['current_state']['team'],
+                analytics['momentum']['current_state']['score'],
+                analytics['momentum']['current_state']['intensity'],
+                analytics['is_critical_moment'],
+                analytics.get('period', 1),
+                analytics.get('time_remaining', 0),
+                analytics.get('score', {}).get('red', 0),
+                analytics.get('score', {}).get('blue', 0)
+            ))
             self.conn.commit()
-            logging.debug(f"Game state saved for game {game_id}")
         except sqlite3.Error as e:
             logging.error(f"Error saving game state: {e}")
 
-    def get_last_game_state(self, game_id):
-        """Retrieve the last saved state for a game."""
+    def save_scoring_pattern(self, game_id: int, pattern_data: Dict[str, Any]):
+        """Save a scoring pattern"""
         try:
             self.cursor.execute('''
-                SELECT state_data FROM state_history 
-                WHERE game_id = ? 
-                ORDER BY timestamp DESC LIMIT 1
-            ''', (game_id,))
-            result = self.cursor.fetchone()
-            return json.loads(result[0]) if result else None
-        except sqlite3.Error as e:
-            logging.error(f"Error retrieving game state: {e}")
-            return None
-
-    def log_diagnostic_event(self, sensor_name, event_type, data):
-        """Log a diagnostic event."""
-        try:
-            self.cursor.execute('''
-                INSERT INTO diagnostics_log (timestamp, sensor_name, event_type, data)
-                VALUES (?, ?, ?, ?)
-            ''', (datetime.now().isoformat(), sensor_name, event_type, 
-                  json.dumps(data) if isinstance(data, dict) else str(data)))
+                INSERT INTO scoring_patterns (
+                    game_id, pattern_type, team, start_time, end_time,
+                    goals_count, pattern_data
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                game_id,
+                pattern_data['type'],
+                pattern_data['team'],
+                pattern_data['start_time'],
+                pattern_data['end_time'],
+                pattern_data['goals_count'],
+                str(pattern_data['details'])
+            ))
             self.conn.commit()
         except sqlite3.Error as e:
-            logging.error(f"Error logging diagnostic event: {e}")
+            logging.error(f"Error saving scoring pattern: {e}")
 
-    def get_goal_trends(self):
-        """Get goal scoring trends."""
+    def get_game_stats(self, game_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get game statistics"""
         try:
-            self.cursor.execute('''
-                SELECT strftime('%H:%M', time) AS minute, team, COUNT(*) AS goals
-                FROM goal_events
-                GROUP BY minute, team
-                ORDER BY minute
-            ''')
-            return self.cursor.fetchall()
+            if game_id:
+                self.cursor.execute('''
+                    SELECT * FROM game_history WHERE id = ?
+                ''', (game_id,))
+            else:
+                self.cursor.execute('SELECT * FROM game_history')
+            
+            columns = [description[0] for description in self.cursor.description]
+            return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
         except sqlite3.Error as e:
-            logging.error(f"Error retrieving goal trends: {e}")
+            logging.error(f"Error getting game stats: {e}")
             return []
 
-    def get_game_stats(self, game_id):
-        """Get comprehensive stats for a game."""
+    def get_winners_by_differential(self, diff: int) -> Dict[str, float]:
+        """Get historical win rates for a given score differential"""
         try:
             self.cursor.execute('''
-                SELECT gh.*, 
-                       COUNT(ge.id) as total_goals,
-                       AVG(CASE WHEN gh.duration > 0 
-                           THEN CAST(COUNT(ge.id) AS FLOAT) / gh.duration 
-                           ELSE 0 END) as goals_per_minute
-                FROM game_history gh
-                LEFT JOIN goal_events ge ON gh.id = ge.game_id
-                WHERE gh.id = ?
-                GROUP BY gh.id
-            ''', (game_id,))
-            return self.cursor.fetchone()
+                SELECT 
+                    COUNT(*) as total_games,
+                    SUM(CASE WHEN (score_red - score_blue) >= ? 
+                        AND winner_id = player_red_id THEN 1 ELSE 0 END) as red_wins,
+                    SUM(CASE WHEN (score_blue - score_red) >= ? 
+                        AND winner_id = player_blue_id THEN 1 ELSE 0 END) as blue_wins
+                FROM game_history
+                WHERE ABS(score_red - score_blue) >= ?
+            ''', (diff, diff, abs(diff)))
+            
+            result = self.cursor.fetchone()
+            if result and result[0] > 0:
+                total = result[0]
+                return {
+                    'total_games': total,
+                    'win_rate': (result[1] + result[2]) / total if total > 0 else 0.5
+                }
+            return {'total_games': 0, 'win_rate': 0.5}
         except sqlite3.Error as e:
-            logging.error(f"Error retrieving game stats: {e}")
-            return None
+            logging.error(f"Error getting winners by differential: {e}")
+            return {'total_games': 0, 'win_rate': 0.5}
 
-    def _calculate_game_duration(self, game_id):
-        """Calculate the duration of a game."""
+    def get_period_stats(self, period: int) -> Dict[str, Any]:
+        """Get statistics for a specific period"""
         try:
             self.cursor.execute('''
-                SELECT date_time FROM game_history WHERE id = ?
-            ''', (game_id,))
-            start_time = datetime.fromisoformat(self.cursor.fetchone()[0])
-            return int((datetime.now() - start_time).total_seconds())
-        except (sqlite3.Error, TypeError) as e:
-            logging.error(f"Error calculating game duration: {e}")
-            return 0
-
-    def _determine_winner(self, score):
-        """Determine the winner based on scores."""
-        if score['red'] > score['blue']:
-            return 'red'
-        elif score['blue'] > score['red']:
-            return 'blue'
-        return None
-
-    def vacuum_old_records(self, days_to_keep=30):
-        """Clean up old records to prevent database bloat."""
-        try:
-            cutoff_date = (datetime.now() - timedelta(days=days_to_keep)).isoformat()
-            self.cursor.execute('''
-                DELETE FROM goal_events 
-                WHERE game_id IN (
-                    SELECT id FROM game_history 
-                    WHERE date_time < ?
-                )
-            ''', (cutoff_date,))
-            self.cursor.execute('VACUUM')
-            self.conn.commit()
-            logging.info(f"Cleaned up records older than {days_to_keep} days")
+                SELECT 
+                    COUNT(*) as total_goals,
+                    SUM(CASE WHEN team = 'red' THEN 1 ELSE 0 END) as red_goals,
+                    SUM(CASE WHEN team = 'blue' THEN 1 ELSE 0 END) as blue_goals
+                FROM goal_events
+                WHERE time >= ? AND time < ?
+            ''', (period * 180, (period + 1) * 180))
+            
+            result = self.cursor.fetchone()
+            if result:
+                return {
+                    'total_goals': result[0],
+                    'red_goals': result[1],
+                    'blue_goals': result[2]
+                }
+            return {'total_goals': 0, 'red_goals': 0, 'blue_goals': 0}
         except sqlite3.Error as e:
-            logging.error(f"Error cleaning up old records: {e}")
+            logging.error(f"Error getting period stats: {e}")
+            return {'total_goals': 0, 'red_goals': 0, 'blue_goals': 0}
+
+    def get_recent_goals(self, game_id: int, window: int = 60) -> List[Dict[str, Any]]:
+        """Get goals within recent time window"""
+        try:
+            self.cursor.execute('''
+                SELECT * FROM goal_events
+                WHERE game_id = ?
+                AND time >= (
+                    SELECT MAX(time) FROM goal_events 
+                    WHERE game_id = ?
+                ) - ?
+                ORDER BY time DESC
+            ''', (game_id, game_id, window))
+            
+            columns = [description[0] for description in self.cursor.description]
+            return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
+        except sqlite3.Error as e:
+            logging.error(f"Error getting recent goals: {e}")
+            return []
+
+    def get_analytics_history(self, game_id: int) -> List[Dict[str, Any]]:
+        """Get analytics history for a game"""
+        try:
+            self.cursor.execute('''
+                SELECT * FROM analytics_history
+                WHERE game_id = ?
+                ORDER BY timestamp
+            ''', (game_id,))
+            
+            columns = [description[0] for description in self.cursor.description]
+            return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
+        except sqlite3.Error as e:
+            logging.error(f"Error getting analytics history: {e}")
+            return []
+
+    def get_scoring_patterns(self, game_id: int) -> List[Dict[str, Any]]:
+        """Get scoring patterns for a game"""
+        try:
+            self.cursor.execute('''
+                SELECT * FROM scoring_patterns
+                WHERE game_id = ?
+                ORDER BY start_time
+            ''', (game_id,))
+            
+            columns = [description[0] for description in self.cursor.description]
+            return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
+        except sqlite3.Error as e:
+            logging.error(f"Error getting scoring patterns: {e}")
+            return []
 
     def close(self):
-        """Close the database connection."""
-        self.conn.close()
-        logging.info('Database connection closed')
+        """Close the database connection"""
+        if self.conn:
+            self.conn.close()
+            logging.info('Database connection closed')
