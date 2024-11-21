@@ -1,0 +1,54 @@
+:::::: container
+# Analytics Dashboard
+
+:::: overview-panel
+### Game Overview
+- Total Games Played: {{ total_games }}
+- Recent Games: {{ recent_games }}
+- Most Active Players: {{ active_players }}
+::::
+
+:::: stats-panels
+::: win-rates
+### Win Rates
+{% if win_rates %}
+{{ win_rates | render_chart }}
+{% else %}
+No win rate data available
+{% endif %}
+:::
+
+::: scoring-patterns
+### Scoring Patterns
+{% if scoring_patterns %}
+{{ scoring_patterns | render_chart }}
+{% else %}
+No pattern data available
+{% endif %}
+:::
+
+::: momentum-analysis
+### Momentum Analysis
+{% if momentum_data %}
+{{ momentum_data | render_chart }}
+{% else %}
+No momentum data available
+{% endif %}
+:::
+::::
+
+:::: historical-data
+### Historical Performance
+{% if historical_data %}
+{{ historical_data | render_table }}
+{% else %}
+No historical data available
+{% endif %}
+::::
+
+:::: export-section
+### Export Options
+[Export Full Analytics]({{ url_for('download_analytics') }})
+[Export Current Game]({{ url_for('download_game_analytics', game_id=current_game) }})
+::::
+::::::
