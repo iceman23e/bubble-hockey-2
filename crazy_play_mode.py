@@ -2,10 +2,11 @@
 
 from base_game_mode import BaseGameMode
 import pygame
-import logging
 import random
+import logging
 from datetime import datetime, timedelta
-from utils import load_sound
+from typing import Dict, Optional
+from utils import load_sound, load_image
 
 class CrazyPlayMode(BaseGameMode):
     """Crazy Play mode with exciting but physically implementable features."""
@@ -16,7 +17,7 @@ class CrazyPlayMode(BaseGameMode):
         
         # Core scoring features
         self.current_goal_value = 1
-        self.first_goal_opportunity = True  # Track first goal opportunity
+        self.first_goal_opportunity = True
         self.first_goal_window = self.settings.period_length * 0.15  # 15% of period length
         self.frenzy_window = max(30, self.settings.period_length * 0.1)  # 10% of period or minimum 30 seconds
         self.last_goal_time = None
@@ -37,14 +38,6 @@ class CrazyPlayMode(BaseGameMode):
         self.max_periods = 5  # Longer games
         self.clock = self.settings.period_length
         
-        # Analytics enhancements
-        self.analytics_events = []
-        self.show_analytics = True
-        self.analytics_overlay_position = 'dynamic'
-        self.analytics_alert_queue = []
-        self.last_analytics_update = datetime.now()
-        self.analytics_update_interval = 0.5
-        
         # Visual effects system
         self.visual_effects = []
         self.particle_systems = []
@@ -59,36 +52,51 @@ class CrazyPlayMode(BaseGameMode):
             'comeback_goals': 0,
             'critical_goals': 0,
             'max_combo': 0,
-            'total_bonus_multiplier': 0
+            'total_bonus_multiplier': 0,
+            'comebacks_started': 0,
+            'comebacks_completed': 0
         }
         
         # Load assets and sounds
         self.load_assets()
         self.load_crazy_sounds()
-        
+
+        # Initialize analytics display settings
+        self.show_analytics = True
+        self.analytics_overlay_position = 'dynamic'
+        self.analytics_alert_queue = []
+        self.last_analytics_update = datetime.now()
+        self.analytics_update_interval = 0.5
+
         # Initialize random sound timing variables
-        self.last_random_sound_time = datetime.now().timestamp()
+        self.last_random_sound_time = datetime.now()
         self.next_random_sound_interval = self.get_next_random_sound_interval()
+
+        # Initialize comeback tracking
+        self.comeback_active = False
+        self.comeback_start_score = None
 
     def load_assets(self):
         """Load assets specific to Crazy Play mode"""
         try:
             # Load background and UI elements
-            self.background = pygame.image.load('assets/crazy_play/images/background.png')
-            self.overlay = pygame.image.load('assets/crazy_play/images/overlay.png')
-            self.bonus_indicator = pygame.image.load('assets/crazy_play/images/bonus.png')
-            self.frenzy_overlay = pygame.image.load('assets/crazy_play/images/frenzy.png')
-            self.quick_strike_overlay = pygame.image.load('assets/crazy_play/images/quick_strike.png')
+            self.background = load_image('assets/crazy_play/images/background.png')
+            self.overlay = load_image('assets/crazy_play/images/overlay.png')
+            self.bonus_indicator = load_image('assets/crazy_play/images/bonus.png')
+            self.frenzy_overlay = load_image('assets/crazy_play/images/frenzy.png')
+            self.quick_strike_overlay = load_image('assets/crazy_play/images/quick_strike.png')
             
             # Load analytics-specific assets
-            self.analytics_frame = pygame.image.load('assets/crazy_play/images/analytics_frame.png')
-            self.momentum_indicator = pygame.image.load('assets/crazy_play/images/momentum_indicator.png')
+            self.analytics_frame = load_image('assets/crazy_play/images/analytics_frame.png')
+            self.momentum_indicator = load_image('assets/crazy_play/images/momentum_indicator.png')
+            self.comeback_indicator = load_image('assets/crazy_play/images/comeback.png')
             
             # Load particle effects
             self.particle_images = {
-                'spark': pygame.image.load('assets/crazy_play/particles/spark.png'),
-                'star': pygame.image.load('assets/crazy_play/particles/star.png'),
-                'trail': pygame.image.load('assets/crazy_play/particles/trail.png')
+                'spark': load_image('assets/crazy_play/particles/spark.png'),
+                'star': load_image('assets/crazy_play/particles/star.png'),
+                'trail': load_image('assets/crazy_play/particles/trail.png'),
+                'comeback': load_image('assets/crazy_play/particles/comeback.png')
             }
             
             logging.info("Crazy Play mode assets loaded successfully")
@@ -102,7 +110,9 @@ class CrazyPlayMode(BaseGameMode):
             'bonus': load_sound('assets/sounds/bonus_activated.wav'),
             'quick_strike': load_sound('assets/sounds/quick_strike.wav'),
             'combo': load_sound('assets/sounds/combo_goal.wav'),
-            'frenzy': load_sound('assets/sounds/frenzy.wav')
+            'frenzy': load_sound('assets/sounds/frenzy.wav'),
+            'comeback_started': load_sound('assets/sounds/comeback_started.wav'),
+            'comeback_complete': load_sound('assets/sounds/comeback_complete.wav')
         }
         logging.info("Crazy Play mode sounds loaded successfully")
 
@@ -120,6 +130,10 @@ class CrazyPlayMode(BaseGameMode):
 
     def update(self):
         """Update the game state."""
+        if self.game.state_machine.state != self.game.state_machine.states.PLAYING:
+            return
+
+        # Update base game elements
         super().update()
         
         current_time = datetime.now()
@@ -154,11 +168,10 @@ class CrazyPlayMode(BaseGameMode):
         
         # Update analytics alerts
         self._update_analytics_alerts()
-        
+
         # Handle random sounds
         if (self.game.sounds_enabled and 
-            self.game.sounds.get('random_sounds') and 
-            (current_time.timestamp() - self.last_random_sound_time) >= self.next_random_sound_interval):
+            current_time.timestamp() - self.last_random_sound_time >= self.next_random_sound_interval):
             self.play_random_sound()
             self.last_random_sound_time = current_time.timestamp()
             self.next_random_sound_interval = self.get_next_random_sound_interval()
@@ -277,6 +290,45 @@ class CrazyPlayMode(BaseGameMode):
         # Set next event time (between 20-40 seconds)
         self.next_event_time = datetime.now() + timedelta(seconds=random.randint(20, 40))
 
+    def _calculate_comeback_bonus(self, team):
+        """Calculate comeback bonus based on score difference and time."""
+        if team == 'red':
+            score_diff = self.score['blue'] - self.score['red']
+        else:
+            score_diff = self.score['red'] - self.score['blue']
+            
+        if score_diff <= 0:
+            return 0
+            
+        time_factor = min(1.0, (self.settings.period_length - self.clock) / self.settings.period_length * 4)
+        score_factor = min(1.0, score_diff / 5)
+        
+        bonus = round(min(3, score_factor * time_factor * 3))
+        return bonus
+
+    def _check_comeback_status(self, team):
+        """Check and update comeback status."""
+        if team == 'red':
+            score_diff = self.score['blue'] - self.score['red']
+        else:
+            score_diff = self.score['red'] - self.score['blue']
+
+        # Start tracking comeback if down by 3 or more
+        if score_diff >= 3 and not self.comeback_active:
+            self.comeback_active = True
+            self.comeback_start_score = self.score.copy()
+            self.stats['comebacks_started'] += 1
+            self._play_sound('comeback_started')
+            self._add_analytics_alert(f"{team.upper()} TEAM COMEBACK ATTEMPT!", 'comeback', 2.0)
+
+        # Check if comeback is complete
+        elif self.comeback_active and score_diff <= 0:
+            self.comeback_active = False
+            self.stats['comebacks_completed'] += 1
+            self._play_sound('comeback_complete')
+            self._add_analytics_alert("COMEBACK COMPLETE!", 'comeback', 3.0)
+            self._trigger_effect('comeback_complete', team)
+
     def _start_quick_strike(self):
         """Start a quick strike challenge."""
         self.quick_strike_active = True
@@ -305,6 +357,28 @@ class CrazyPlayMode(BaseGameMode):
         self.active_event = "FINAL MINUTE FRENZY! ALL GOALS WORTH DOUBLE!"
         self._play_sound('frenzy')
         self._add_analytics_alert("FINAL MINUTE FRENZY ACTIVATED!", 'frenzy', 3.0)
+
+    def _end_quick_strike(self):
+        """End the quick strike challenge."""
+        if self.quick_strike_active:
+            self.quick_strike_active = False
+            self.quick_strike_deadline = None
+            self.active_event = None
+
+    def _end_current_event(self):
+        """End the current special event."""
+        self.current_goal_value = 1
+        self.event_duration = None
+        if not self.frenzy_mode:  # Don't clear frenzy message
+            self.active_event = None
+
+    def _play_sound(self, sound_name):
+        """Play a sound effect with cooldown."""
+        current_time = datetime.now()
+        if (current_time - self.last_sound_time).total_seconds() >= self.sound_cooldown:
+            if sound_name in self.crazy_sounds and self.crazy_sounds[sound_name]:
+                self.crazy_sounds[sound_name].play()
+                self.last_sound_time = current_time
 
     def handle_goal(self, team):
         """Handle goal scoring with all bonuses."""
@@ -337,6 +411,9 @@ class CrazyPlayMode(BaseGameMode):
             bonuses.append(f"COMEBACK +{comeback_bonus}!")
             self.stats['comeback_goals'] += 1
             
+        # Call base class goal handling
+        super().handle_goal(team)
+            
         # Combo bonus
         if self.combo_count > 0:
             time_since_last = (current_time - self.last_goal_time).total_seconds()
@@ -363,6 +440,9 @@ class CrazyPlayMode(BaseGameMode):
         self.last_goal_time = current_time
         self.stats['total_bonus_multiplier'] += (points / self.current_goal_value - 1)
         
+        # Check comeback status
+        self._check_comeback_status(team)
+        
         # Show all active bonuses
         if bonuses:
             bonus_text = " + ".join(bonuses)
@@ -370,36 +450,57 @@ class CrazyPlayMode(BaseGameMode):
         else:
             self.active_event = f"{points} POINTS!"
 
-    def _calculate_comeback_bonus(self, team):
-        """Calculate comeback bonus based on score difference and time."""
-        if team == 'red':
-            score_diff = self.score['blue'] - self.score['red']
-        else:
-            score_diff = self.score['red'] - self.score['blue']
-            
-        if score_diff <= 0:
-            return 0
-            
-        time_factor = min(1.0, (self.settings.period_length - self.clock) / self.settings.period_length * 4)
-        score_factor = min(1.0, score_diff / 5)
+        # Update analytics after goal
+        if self.game.current_analysis:
+            analysis = self.game.current_analysis
+            if analysis.get('is_critical_moment'):
+                self.handle_critical_moment(analysis)
+
+    def handle_critical_moment(self, analysis):
+        """Handle critical moments with visual effects."""
+        super().handle_critical_moment(analysis)
+        self.stats['critical_goals'] += 1
         
-        bonus = round(min(3, score_factor * time_factor * 3))
-        return bonus
+        # Add intensity-based effects
+        if analysis['momentum']['current_state']['intensity'] == 'overwhelming':
+            self._add_visual_effect('critical_momentum', (255, 140, 0), 3.0)
+            self._add_analytics_alert("Massive Momentum Shift!", 2.0, 'momentum')
+        
+        # Add time-based effects
+        if self.clock <= 60 and abs(self.score['red'] - self.score['blue']) <= 1:
+            self._add_visual_effect('critical_time', (255, 0, 0), 3.0)
+            self._add_analytics_alert("Critical Moment - Close Game!", 2.0, 'time')
 
-    def _end_current_event(self):
-        """End the current special event."""
-        self.current_goal_value = 1
-        self.event_duration = None
-        if not self.frenzy_mode:  # Don't clear frenzy message
-            self.active_event = None
+    def _trigger_effect(self, effect_type, team):
+        """Trigger visual effect based on type."""
+        if effect_type == 'comeback_complete':
+            # Create special comeback completion particles
+            self._create_comeback_particles(team)
+            self._add_visual_effect('comeback', (255, 215, 0), 3.0)  # Golden color for comeback
 
-    def _play_sound(self, sound_name):
-        """Play a sound effect with cooldown."""
-        current_time = datetime.now()
-        if (current_time - self.last_sound_time).total_seconds() >= self.sound_cooldown:
-            if sound_name in self.crazy_sounds and self.crazy_sounds[sound_name]:
-                self.crazy_sounds[sound_name].play()
-                self.last_sound_time = current_time
+    def _create_comeback_particles(self, team):
+        """Create particles for comeback completion effect."""
+        if 'comeback' not in self.particle_images:
+            return
+
+        particles = []
+        for _ in range(20):  # Create 20 particles
+            particle = {
+                'image': 'comeback',
+                'x': random.randint(0, self.settings.screen_width),
+                'y': random.randint(0, self.settings.screen_height),
+                'dx': random.uniform(-100, 100),
+                'dy': random.uniform(-100, 100),
+                'life': random.uniform(1.0, 2.0),
+                'max_life': 2.0,
+                'alpha': 255
+            }
+            particles.append(particle)
+
+        self.particle_systems.append({
+            'particles': particles,
+            'end_time': datetime.now() + timedelta(seconds=2)
+        })
 
     def draw(self):
         """Draw the game screen."""
@@ -431,8 +532,8 @@ class CrazyPlayMode(BaseGameMode):
             self._draw_event_text()
             
         # Draw visual effects
+        self._draw_visual_effects()
         self._draw_particle_systems()
-        self._draw_active_animations()
 
     def _draw_quick_strike(self):
         """Draw quick strike challenge elements"""
@@ -455,6 +556,47 @@ class CrazyPlayMode(BaseGameMode):
         text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, 200))
         self.screen.blit(text_surface, text_rect)
 
+    def _draw_visual_effects(self):
+        """Draw all active visual effects"""
+        for effect in self.visual_effects:
+            if effect['type'] == 'critical_momentum':
+                s = pygame.Surface((self.settings.screen_width, self.settings.screen_height))
+                s.set_alpha(int(128 * (effect['duration'] / 3.0)))
+                s.fill(effect['color'])
+                self.screen.blit(s, (0, 0))
+            elif effect['type'] == 'critical_time':
+                if self.critical_moment_overlay:
+                    self.critical_moment_overlay.set_alpha(
+                        int(255 * (effect['duration'] / 3.0))
+                    )
+                    self.screen.blit(self.critical_moment_overlay, (0, 0))
+
+    def _draw_particle_systems(self):
+        """Draw all particle systems"""
+        for system in self.particle_systems:
+            for particle in system['particles']:
+                if particle['image'] in self.particle_images:
+                    img = self.particle_images[particle['image']].copy()
+                    img.set_alpha(particle['alpha'])
+                    self.screen.blit(img, (particle['x'], particle['y']))
+
+    def _add_analytics_alert(self, message, alert_type, duration):
+        """Add a new analytics alert."""
+        self.analytics_alert_queue.append({
+            'message': message,
+            'type': alert_type,
+            'duration': duration,
+            'end_time': datetime.now() + timedelta(seconds=duration)
+        })
+
+    def _add_visual_effect(self, effect_type, color, duration):
+        """Add a new visual effect."""
+        self.visual_effects.append({
+            'type': effect_type,
+            'color': color,
+            'duration': duration
+        })
+
     def get_next_random_sound_interval(self):
         """Get the next random sound interval."""
         min_interval = self.settings.random_sound_min_interval
@@ -462,11 +604,19 @@ class CrazyPlayMode(BaseGameMode):
         return random.uniform(min_interval, max_interval)
 
     def play_random_sound(self):
-        """Play a random sound."""
-        if self.game.sounds_enabled and self.game.sounds.get('random_sounds'):
-            random_sound = random.choice(self.game.sounds['random_sounds'])
-            random_sound.play()
-            logging.info("Random sound played")
+        """Play a random sound effect."""
+        if self.game.sounds_enabled:
+            available_sounds = []
+            if self.game.sounds.get('random_sounds'):
+                available_sounds.extend(self.game.sounds['random_sounds'])
+            if self.crazy_sounds:
+                available_sounds.extend(list(self.crazy_sounds.values()))
+                
+            if available_sounds:
+                sound = random.choice(available_sounds)
+                if sound:
+                    sound.play()
+                    logging.debug("Random sound played")
 
     def cleanup(self):
         """Clean up resources."""
@@ -481,4 +631,4 @@ class CrazyPlayMode(BaseGameMode):
         logging.info('Crazy Play mode cleanup completed')
         
         # Log final statistics
-        logging.info(f"Final stats: {json.dumps(self.stats, indent=2)}")
+        logging.info(f"Final stats: {self.stats}")
