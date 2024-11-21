@@ -21,18 +21,44 @@ class BaseGameMode:
         self.power_up_active = False
         self.power_up_end_time = None
         self.active_event = None
+        
+        # Font references from game
         self.font_small = self.game.font_small
         self.font_large = self.game.font_large
-        # New clock management variables
+        
+        # Clock management
         self.in_overtime = False
         self.intermission_clock = None
+        
+        # Analytics display settings
+        self.show_analytics = True
+        self.analytics_overlay_position = 'top-left'
+        
+        # Load theme-specific analytics settings
+        self._load_theme_analytics_settings()
+
+    def _load_theme_analytics_settings(self):
+        """Load analytics display settings from current theme"""
+        try:
+            theme_config = self.game.theme_data
+            if 'analytics' in theme_config:
+                self.analytics_overlay_position = theme_config['analytics'].get(
+                    'overlay_position', 'top-left'
+                )
+                self.show_analytics = theme_config['analytics'].get(
+                    'show_analytics', True
+                )
+        except Exception as e:
+            logging.error(f"Error loading theme analytics settings: {e}")
 
     def handle_event(self, event):
         """Handle events specific to the game mode."""
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_p and self.game.state_machine.can('pause_game'):
                 self.game.state_machine.pause_game()
-
+            elif event.key == pygame.K_a:  # Toggle analytics overlay
+                self.show_analytics = not self.show_analytics
+                
     def update(self):
         """Update the game mode state."""
         if self.game.state_machine.state != GameState.PLAYING:
@@ -67,6 +93,10 @@ class BaseGameMode:
         self._draw_power_up_status()
         if self.active_event:
             self._draw_active_event()
+            
+        # Draw analytics overlay if enabled
+        if self.show_analytics and self.game.current_analysis:
+            self._draw_analytics_overlay()
 
     def _draw_scores(self):
         """Draw the current score."""
@@ -125,6 +155,49 @@ class BaseGameMode:
         event_rect = event_text.get_rect(center=(self.settings.screen_width // 2, 220))
         self.screen.blit(event_text, event_rect)
 
+    def _draw_analytics_overlay(self):
+        """Draw analytics overlay based on theme settings."""
+        if not self.game.current_analysis:
+            return
+            
+        analysis = self.game.current_analysis
+        y_offset = 10
+        
+        # Get position based on theme settings
+        if self.analytics_overlay_position == 'top-right':
+            x_pos = self.settings.screen_width - 200
+        elif self.analytics_overlay_position == 'bottom-left':
+            x_pos = 10
+            y_offset = self.settings.screen_height - 100
+        elif self.analytics_overlay_position == 'bottom-right':
+            x_pos = self.settings.screen_width - 200
+            y_offset = self.settings.screen_height - 100
+        else:  # default to top-left
+            x_pos = 10
+            
+        # Draw win probability
+        if analysis['win_probability']:
+            prob_text = f"Win: R {analysis['win_probability']['red']:.1%} B {analysis['win_probability']['blue']:.1%}"
+            prob_surface = self.font_small.render(prob_text, True, (255, 255, 255))
+            self.screen.blit(prob_surface, (x_pos, y_offset))
+            y_offset += 25
+            
+        # Draw momentum
+        if analysis['momentum']['current_state']['team']:
+            momentum = analysis['momentum']['current_state']
+            momentum_text = f"Momentum: {momentum['team'].upper()} ({momentum['intensity']})"
+            momentum_surface = self.font_small.render(momentum_text, True, (255, 140, 0))
+            self.screen.blit(momentum_surface, (x_pos, y_offset))
+            y_offset += 25
+            
+        # Draw scoring patterns
+        if analysis.get('patterns', {}).get('current_run'):
+            run = analysis['patterns']['current_run']
+            if run['length'] > 1:
+                run_text = f"Scoring Run: {run['team'].upper()} x{run['length']}"
+                run_surface = self.font_small.render(run_text, True, (255, 255, 0))
+                self.screen.blit(run_surface, (x_pos, y_offset))
+
     def _update_power_ups(self, dt):
         """Update power-up status."""
         if self.power_up_active:
@@ -139,18 +212,18 @@ class BaseGameMode:
             return
 
         if self.last_goal_time and self.combo_count > 0:
-            time_since_last_goal = (datetime.now() - self.last_goal_time).total_seconds()
-            if time_since_last_goal > self.settings.combo_time_window:
+            time_since_last = (datetime.now() - self.last_goal_time).total_seconds()
+            if time_since_last > self.settings.combo_time_window:
                 self.combo_count = 0
 
-    def handle_goal(self):
-        """Handle goal scoring logic."""
+    def handle_goal(self, team):
+        """Handle goal scoring with analytics integration."""
         current_time = datetime.now()
         
-        # Check for combo
+        # Basic goal handling
         if self.settings.combo_goals_enabled and self.last_goal_time:
-            time_since_last_goal = (current_time - self.last_goal_time).total_seconds()
-            if time_since_last_goal <= self.settings.combo_time_window:
+            time_since_last = (current_time - self.last_goal_time).total_seconds()
+            if time_since_last <= self.settings.combo_time_window:
                 self.combo_count = min(self.combo_count + 1, self.settings.combo_max_stack)
                 if self.combo_count > 1:
                     self.active_event = f"COMBO x{self.combo_count}!"
@@ -160,6 +233,9 @@ class BaseGameMode:
             self.combo_count = 1
 
         self.last_goal_time = current_time
+        
+        # Update score
+        self.score[team] += 1
 
     def handle_period_end(self):
         """Handle the end of a period."""
@@ -189,6 +265,14 @@ class BaseGameMode:
         winner = 'red' if self.score['red'] > self.score['blue'] else 'blue'
         logging.info(f"Game ended. Winner: {winner}")
         self.active_event = f"{winner.upper()} TEAM WINS!"
+
+    def handle_critical_moment(self, analysis):
+        """Handle critical game moments identified by analytics."""
+        if analysis['is_critical_moment']:
+            if 'momentum' in analysis and analysis['momentum']['current_state']['intensity'] == 'overwhelming':
+                self.active_event = "CRITICAL MOMENT - MOMENTUM SHIFT!"
+            elif self.clock <= 60 and abs(self.score['red'] - self.score['blue']) <= 1:
+                self.active_event = "CRITICAL MOMENT - CLOSE GAME!"
 
     def activate_power_up(self, duration):
         """Activate a power-up for the specified duration."""
