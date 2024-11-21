@@ -5,6 +5,7 @@ import pygame
 import logging
 import random
 import json
+import os
 from datetime import datetime, timedelta
 
 class EvolvedMode(BaseGameMode):
@@ -16,6 +17,7 @@ class EvolvedMode(BaseGameMode):
         
         # Initialize evolved mode specific features
         self.taunt_timer = 0
+        self.taunt_frequency = 30  # Seconds between taunts
         self.power_up_timer = 0
         self.combo_multiplier = 1
         self.max_combo_multiplier = 3
@@ -25,6 +27,11 @@ class EvolvedMode(BaseGameMode):
         self.power_ups_enabled = True
         self.taunts_enabled = True
         self.combos_enabled = True
+        
+        # Power-up related variables
+        self.power_up_active = False
+        self.power_up_end_time = None
+        self.current_power_up = None  # Track the type of active power-up
         
         # Analytics-specific features
         self.momentum_effects_enabled = True
@@ -49,6 +56,12 @@ class EvolvedMode(BaseGameMode):
         
         # Load evolved mode configuration
         self._load_evolved_config()
+        
+        # Initialize last probabilities for analytics
+        self.last_probabilities = {'red': 0.5, 'blue': 0.5}
+        
+        # Initialize last goal time
+        self.last_goal_time = None
 
     def _load_evolved_config(self):
         """Load evolved mode specific configuration"""
@@ -60,11 +73,13 @@ class EvolvedMode(BaseGameMode):
                     self.effect_intensity = config.get('effect_intensity', 1.0)
                     self.momentum_threshold = config.get('momentum_threshold', 0.5)
                     self.analytics_update_rate = config.get('analytics_update_rate', 1.0)
+                    self.settings.power_up_frequency = config.get('power_up_frequency', 30.0)
             else:
                 logging.warning("Evolved mode config not found, using defaults")
                 self.effect_intensity = 1.0
                 self.momentum_threshold = 0.5
                 self.analytics_update_rate = 1.0
+                self.settings.power_up_frequency = 30.0
         except Exception as e:
             logging.error(f"Error loading evolved mode config: {e}")
 
@@ -94,7 +109,7 @@ class EvolvedMode(BaseGameMode):
             }
             
             logging.debug("Evolved mode assets loaded successfully")
-        except Exception as e:
+        except pygame.error as e:
             logging.error(f"Failed to load evolved mode assets: {e}")
             self.background_image = None
             self.power_up_overlay = None
@@ -116,39 +131,87 @@ class EvolvedMode(BaseGameMode):
     def update(self):
         """Update the game state with enhanced analytics integration."""
         super().update()
-        
+        dt = self.game.clock.get_time() / 1000.0
+
         if self.game.state_machine.state == self.game.state_machine.states.PLAYING:
-            dt = self.game.clock.get_time() / 1000.0
-            
             # Update timers
             self._update_timers(dt)
-            
+
+            # Check for power-up spawning
+            self._check_power_up_spawn()
+
+            # Handle power-up expiration
+            if self.power_up_active and datetime.now() >= self.power_up_end_time:
+                self._on_power_up_end()
+
             # Update visual effects
             self._update_visual_effects(dt)
-            
+
             # Handle analytics-driven events
             if self.game.current_analysis:
                 self._handle_analytics_update(self.game.current_analysis)
-            
+
             # Update particle effects
             self._update_particles(dt)
-            
+
             # Update analytics alerts
             self._update_analytics_alerts(dt)
+
+            # Handle taunts
+            if self.taunts_enabled and self.taunt_timer >= self.taunt_frequency:
+                self.play_random_taunt()
+                self.taunt_timer = 0
 
     def _update_timers(self, dt):
         """Update all timers for evolved mode features."""
         if self.taunts_enabled:
             self.taunt_timer += dt
-            
+
         if self.power_ups_enabled:
             self.power_up_timer += dt
 
+    def _check_power_up_spawn(self):
+        """Check if it's time to spawn a power-up."""
+        if self.power_ups_enabled and self.power_up_timer >= self.settings.power_up_frequency:
+            self.spawn_power_up()
+            self.power_up_timer = 0
+
+    def spawn_power_up(self):
+        """Spawn and activate a random power-up."""
+        if not self.power_up_active:
+            power_up_type = random.choice(['speed_boost', 'goal_multiplier', 'defense_boost'])
+            duration = random.uniform(10, 20)  # Power-up duration between 10-20 seconds
+            self.activate_power_up(power_up_type, duration)
+            self.active_event = f"{power_up_type.replace('_', ' ').upper()} ACTIVATED!"
+            logging.info(f"Power-up spawned: {power_up_type}")
+
+    def activate_power_up(self, power_up_type, duration):
+        """Activate a power-up for the specified duration."""
+        self.power_up_active = True
+        self.current_power_up = power_up_type
+        self.power_up_end_time = datetime.now() + timedelta(seconds=duration)
+        self.stats['power_ups_used'] += 1
+
+    def _on_power_up_end(self):
+        """Handle power-up expiration."""
+        logging.info("Power-up expired")
+        self.power_up_active = False
+        self.current_power_up = None
+        self.power_up_end_time = None
+        self.active_event = None
+
+    def play_random_taunt(self):
+        """Play a random taunt sound."""
+        if self.game.sounds_enabled and self.game.sounds.get('taunts'):
+            taunt_sound = random.choice(self.game.sounds['taunts'])
+            taunt_sound.play()
+            self.stats['taunts_triggered'] += 1
+            logging.info("Taunt sound played")
+
     def _update_visual_effects(self, dt):
-        """Update visual effects based on game state"""
+        """Update visual effects based on game state."""
         # Update existing effects
-        self.visual_effects = [effect for effect in self.visual_effects
-                             if effect['duration'] > 0]
+        self.visual_effects = [effect for effect in self.visual_effects if effect['duration'] > 0]
         for effect in self.visual_effects:
             effect['duration'] -= dt
 
@@ -158,7 +221,7 @@ class EvolvedMode(BaseGameMode):
             self._spawn_momentum_particles()
 
     def _update_particles(self, dt):
-        """Update particle effects"""
+        """Update particle effects."""
         for particle in self.momentum_particles[:]:
             particle['life'] -= dt
             if particle['life'] <= 0:
@@ -169,43 +232,43 @@ class EvolvedMode(BaseGameMode):
                 particle['alpha'] = min(255, int(255 * (particle['life'] / particle['max_life'])))
 
     def _update_analytics_alerts(self, dt):
-        """Update analytics-driven alerts"""
+        """Update analytics-driven alerts."""
         for alert in self.analytics_alerts[:]:
             alert['duration'] -= dt
             if alert['duration'] <= 0:
                 self.analytics_alerts.remove(alert)
 
     def _handle_analytics_update(self, analysis):
-        """Handle updates from analytics system"""
+        """Handle updates from analytics system."""
         # Check for momentum shifts
         if analysis['momentum']['current_state']['team']:
             self._handle_momentum_effects(analysis['momentum'])
-            
+
         # Check for critical moments
-        if analysis['is_critical_moment']:
-            self._handle_critical_moment(analysis)
-            
+        if analysis.get('is_critical_moment'):
+            self.handle_critical_moment(analysis)
+
         # Check for significant pattern detection
         if 'patterns' in analysis:
             self._handle_pattern_detection(analysis['patterns'])
 
     def _handle_momentum_effects(self, momentum):
-        """Handle momentum-based visual effects"""
+        """Handle momentum-based visual effects."""
         if not self.momentum_effects_enabled:
             return
-            
+
         team = momentum['current_state']['team']
         intensity = momentum['current_state']['intensity']
-        
+
         if intensity in ['strong', 'overwhelming']:
             color = (255, 0, 0) if team == 'red' else (0, 0, 255)
             self._add_visual_effect('momentum_glow', color, 2.0)
-            
+
             if momentum['current_state']['score'] > self.momentum_threshold:
                 self._spawn_momentum_particles()
 
     def _spawn_momentum_particles(self):
-        """Create momentum particle effects"""
+        """Create momentum particle effects."""
         for _ in range(3):  # Spawn 3 particles per update
             particle = {
                 'x': random.randint(0, self.settings.screen_width),
@@ -219,7 +282,7 @@ class EvolvedMode(BaseGameMode):
             self.momentum_particles.append(particle)
 
     def _handle_pattern_detection(self, patterns):
-        """Handle detected gameplay patterns"""
+        """Handle detected gameplay patterns."""
         if patterns.get('scoring_runs', {}).get('current_run', {}).get('length', 0) >= 3:
             run = patterns['scoring_runs']['current_run']
             self._add_analytics_alert(
@@ -229,7 +292,7 @@ class EvolvedMode(BaseGameMode):
             )
 
     def _add_visual_effect(self, effect_type, color, duration):
-        """Add a new visual effect"""
+        """Add a new visual effect."""
         self.visual_effects.append({
             'type': effect_type,
             'color': color,
@@ -238,7 +301,7 @@ class EvolvedMode(BaseGameMode):
         })
 
     def _add_analytics_alert(self, message, duration, alert_type):
-        """Add a new analytics alert"""
+        """Add a new analytics alert."""
         self.analytics_alerts.append({
             'message': message,
             'duration': duration,
@@ -249,10 +312,10 @@ class EvolvedMode(BaseGameMode):
     def handle_goal(self, team):
         """Handle goal scoring with enhanced features."""
         super().handle_goal(team)
-        
         current_time = datetime.now()
-        
-        # Enhanced combo system
+        points = 1  # Base points for a goal
+
+        # Apply combo multiplier if enabled
         if self.combos_enabled:
             if self.last_goal_time:
                 time_since_last = (current_time - self.last_goal_time).total_seconds()
@@ -260,15 +323,31 @@ class EvolvedMode(BaseGameMode):
                     self.streak_count += 1
                     self.combo_multiplier = min(self.streak_count, self.max_combo_multiplier)
                     if self.combo_multiplier > 1:
+                        points *= self.combo_multiplier
                         self.active_event = f"COMBO x{self.combo_multiplier}!"
                         self._add_visual_effect('combo', (255, 255, 0), 1.5)
                 else:
                     self.streak_count = 1
                     self.combo_multiplier = 1
-            
+            else:
+                self.streak_count = 1
+                self.combo_multiplier = 1
+        else:
+            self.combo_multiplier = 1
+
+        # Apply power-up effects
+        if self.power_up_active and self.current_power_up == 'goal_multiplier':
+            multiplier = 2  # Example multiplier
+            points *= multiplier
+            self.active_event = f"POWER-UP! GOAL WORTH {points} POINTS!"
+
+        # Update score
+        self.score[team] += points
+
+        # Update last goal time
         self.last_goal_time = current_time
         self.stats['max_streak'] = max(self.stats['max_streak'], self.streak_count)
-        
+
         # Check for comeback
         score_diff = self.score['red'] - self.score['blue']
         if abs(score_diff) >= 3:
@@ -279,22 +358,20 @@ class EvolvedMode(BaseGameMode):
                     self.stats['successful_comebacks'] += 1
                     self._add_analytics_alert("Comeback Complete!", 3.0, 'comeback')
 
-        logging.info(f"Goal scored with combo multiplier: {self.combo_multiplier}")
+        logging.info(f"Goal scored by {team} with {points} points (Combo x{self.combo_multiplier})")
 
     def handle_critical_moment(self, analysis):
         """Handle critical game moments with enhanced effects."""
-        super().handle_critical_moment(analysis)
-        
-        if not analysis['is_critical_moment']:
+        if not analysis.get('is_critical_moment'):
             return
-            
+
         self.stats['critical_moments'] += 1
-        
+
         # Add visual effects based on the type of critical moment
         if analysis['momentum']['current_state']['intensity'] == 'overwhelming':
             self._add_visual_effect('critical_momentum', (255, 140, 0), 3.0)
             self._add_analytics_alert("Momentum Shift!", 2.0, 'momentum')
-            
+
         if self.clock <= 60 and abs(self.score['red'] - self.score['blue']) <= 1:
             self._add_visual_effect('critical_time', (255, 0, 0), 3.0)
             self._add_analytics_alert("Final Minute - Close Game!", 2.0, 'time')
@@ -312,15 +389,15 @@ class EvolvedMode(BaseGameMode):
 
         # Draw evolved mode specific elements
         self._draw_evolved_elements()
-        
+
         # Draw visual effects
         self._draw_visual_effects()
-        
+
         # Draw analytics overlays and alerts
         if self.show_analytics:
             self._draw_analytics_overlay()
             self._draw_analytics_alerts()
-        
+
         # Draw particle effects
         self._draw_particles()
 
@@ -328,7 +405,8 @@ class EvolvedMode(BaseGameMode):
         """Draw elements specific to evolved mode."""
         # Draw combo indicator
         if self.combo_multiplier > 1 and self.combo_indicators:
-            indicator = self.combo_indicators[self.combo_multiplier - 1]
+            index = min(self.combo_multiplier - 1, len(self.combo_indicators) - 1)
+            indicator = self.combo_indicators[index]
             indicator_rect = indicator.get_rect(
                 center=(self.settings.screen_width // 4, self.settings.screen_height - 50)
             )
@@ -351,7 +429,7 @@ class EvolvedMode(BaseGameMode):
             self.screen.blit(streak_text, streak_rect)
 
     def _draw_visual_effects(self):
-        """Draw active visual effects"""
+        """Draw active visual effects."""
         for effect in self.visual_effects:
             if effect['type'] == 'momentum_glow':
                 s = pygame.Surface((self.settings.screen_width, self.settings.screen_height))
@@ -364,9 +442,14 @@ class EvolvedMode(BaseGameMode):
                         int(255 * effect['intensity'] * (effect['duration'] / 3.0))
                     )
                     self.screen.blit(self.critical_moment_overlay, (0, 0))
+            elif effect['type'] == 'combo':
+                s = pygame.Surface((self.settings.screen_width, self.settings.screen_height))
+                s.set_alpha(int(128 * (effect['duration'] / 1.5)))
+                s.fill(effect['color'])
+                self.screen.blit(s, (0, 0))
 
     def _draw_particles(self):
-        """Draw particle effects"""
+        """Draw particle effects."""
         for particle in self.momentum_particles:
             if 'momentum' in self.particle_images:
                 img = self.particle_images['momentum'].copy()
@@ -374,7 +457,7 @@ class EvolvedMode(BaseGameMode):
                 self.screen.blit(img, (particle['x'], particle['y']))
 
     def _draw_analytics_alerts(self):
-        """Draw active analytics alerts"""
+        """Draw active analytics alerts."""
         y_offset = 100
         for alert in self.analytics_alerts:
             alert_surface = self.font_small.render(alert['message'], True, (255, 255, 255))
