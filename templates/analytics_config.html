@@ -1,0 +1,57 @@
+:::::: container
+# Analytics Configuration
+
+:::: basic-settings
+### Basic Settings
+- Display Analytics Overlay: <input type="checkbox" name="show_analytics_overlay" {{ 'checked' if settings.show_analytics_overlay }}>
+- Overlay Position:
+  <select name="overlay_position">
+    <option value="top-left" {{ 'selected' if settings.analytics_config.overlay_position == 'top-left' }}>Top Left</option>
+    <option value="top-right" {{ 'selected' if settings.analytics_config.overlay_position == 'top-right' }}>Top Right</option>
+    <option value="bottom-left" {{ 'selected' if settings.analytics_config.overlay_position == 'bottom-left' }}>Bottom Left</option>
+    <option value="bottom-right" {{ 'selected' if settings.analytics_config.overlay_position == 'bottom-right' }}>Bottom Right</option>
+    <option value="dynamic" {{ 'selected' if settings.analytics_config.overlay_position == 'dynamic' }}>Dynamic</option>
+  </select>
+::::
+
+:::: data-requirements
+### Data Requirements
+- Minimum Games for Basic Analytics: <input type="number" name="min_games_basic" value="{{ settings.analytics_config.min_games_basic }}">
+- Minimum Games for Advanced Analytics: <input type="number" name="min_games_advanced" value="{{ settings.analytics_config.min_games_advanced }}">
+::::
+
+:::: time-windows
+### Time Windows
+- Momentum Window (seconds): <input type="number" name="momentum_window" value="{{ settings.analytics_config.momentum_window }}">
+- Quick Response Window (seconds): <input type="number" name="quick_response_window" value="{{ settings.analytics_config.quick_response_window }}">
+- Scoring Run Threshold: <input type="number" name="scoring_run_threshold" value="{{ settings.analytics_config.scoring_run_threshold }}">
+::::
+
+:::: game-analysis
+### Game Analysis
+- Critical Moment Threshold (seconds): <input type="number" name="critical_moment_threshold" value="{{ settings.analytics_config.critical_moment_threshold }}">
+- Close Game Threshold (goals): <input type="number" name="close_game_threshold" value="{{ settings.analytics_config.close_game_threshold }}">
+::::
+
+:::: mode-specific
+### Mode-Specific Settings
+#### Classic Mode
+- Show Analytics: <input type="checkbox" name="classic_mode_analytics" {{ 'checked' if settings.analytics_config.classic_mode.show_analytics }}>
+- Overlay Position: <select name="classic_mode_position">
+    <option value="top-right" {{ 'selected' if settings.analytics_config.classic_mode.overlay_position == 'top-right' }}>Top Right</option>
+    <option value="top-left" {{ 'selected' if settings.analytics_config.classic_mode.overlay_position == 'top-left' }}>Top Left</option>
+  </select>
+
+#### Evolved Mode
+- Show Analytics: <input type="checkbox" name="evolved_mode_analytics" {{ 'checked' if settings.analytics_config.evolved_mode.show_analytics }}>
+- Use Dynamic Positioning: <input type="checkbox" name="evolved_mode_dynamic" {{ 'checked' if settings.analytics_config.evolved_mode.overlay_position == 'dynamic' }}>
+
+#### Crazy Play Mode
+- Show Analytics: <input type="checkbox" name="crazy_play_analytics" {{ 'checked' if settings.analytics_config.crazy_play_mode.show_analytics }}>
+- Effect Intensity: <input type="range" min="0" max="1" step="0.1" name="crazy_play_effect_intensity" value="{{ settings.analytics_config.crazy_play_mode.effect_intensity }}">
+::::
+
+:::: save-section
+<button type="submit" class="save-button">Save Analytics Configuration</button>
+::::
+::::::
