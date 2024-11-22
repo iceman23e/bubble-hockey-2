@@ -5,6 +5,7 @@ import threading
 import logging
 import os
 import json
+from datetime import datetime
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -17,9 +18,11 @@ game_instance = None
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'wav', 'ttf'}
 
 def allowed_file(filename):
+    """Check if the file extension is allowed."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def get_available_assets(directory):
+    """Get list of available assets in a directory."""
     assets = []
     for root, dirs, files in os.walk(directory):
         for file in files:
@@ -85,8 +88,34 @@ def get_game_analytics(game_id):
         logging.error(f"Error getting game analytics: {e}")
         return jsonify({'error': 'Failed to retrieve analytics data'})
 
+@app.route('/analytics/download/<int:game_id>')
+def download_analytics(game_id):
+    """Download analytics data for a game as JSON"""
+    if not game_instance or not game_instance.db:
+        return jsonify({'error': 'Database not initialized'})
+        
+    try:
+        # Get all analytics data
+        analytics_history = game_instance.db.get_analytics_history(game_id)
+        scoring_patterns = game_instance.db.get_scoring_patterns(game_id)
+        game_stats = game_instance.db.get_game_stats(game_id)
+        
+        data = {
+            'game_id': game_id,
+            'analytics_history': analytics_history,
+            'scoring_patterns': scoring_patterns,
+            'game_stats': game_stats,
+            'export_date': datetime.now().isoformat()
+        }
+        
+        return jsonify(data)
+    except Exception as e:
+        logging.error(f"Error exporting analytics data: {e}")
+        return jsonify({'error': 'Failed to export analytics data'})
+
 @app.route('/settings', methods=['GET', 'POST'])
 def settings_route():
+    """Handle game settings configuration."""
     if request.method == 'POST':
         # Update game settings
         for key in [
@@ -96,7 +125,7 @@ def settings_route():
             'random_sound_min_interval', 'random_sound_max_interval',
             'combo_goals_enabled', 'combo_time_window', 
             'combo_reward_type', 'combo_max_stack',
-            'show_analytics_overlay'  # New setting for analytics display
+            'show_analytics_overlay'
         ]:
             value = request.form.get(key)
             if value is not None and hasattr(game_settings, key):
@@ -130,6 +159,7 @@ def settings_route():
 
 @app.route('/system_settings', methods=['GET', 'POST'])
 def system_settings():
+    """Handle system settings configuration."""
     if request.method == 'POST':
         # Update system settings
         for key in [
@@ -186,6 +216,7 @@ def system_settings():
 
 @app.route('/themes', methods=['GET', 'POST'])
 def theme_manager():
+    """Handle theme management."""
     themes_dir = 'assets/themes/'
     assets_dir = 'assets/'
     available_themes = [d for d in os.listdir(themes_dir) if os.path.isdir(os.path.join(themes_dir, d))]
@@ -207,7 +238,7 @@ def theme_manager():
             os.makedirs(os.path.join(theme_path, 'sounds'), exist_ok=True)
             os.makedirs(os.path.join(theme_path, 'fonts'), exist_ok=True)
             
-            # Save uploaded files and update theme configuration
+            # Save theme configuration
             theme_config = {
                 'name': theme_name,
                 'assets': {},
@@ -219,6 +250,7 @@ def theme_manager():
                 }
             }
             
+            # Handle asset assignments
             for key in request.form:
                 if key.startswith('asset_'):
                     asset_type = key.replace('asset_', '')
@@ -226,6 +258,7 @@ def theme_manager():
                     if asset_value != '':
                         theme_config['assets'][asset_type] = asset_value
                         
+            # Handle file uploads
             for file_field in request.files:
                 file = request.files[file_field]
                 if file and allowed_file(file.filename):
@@ -242,7 +275,7 @@ def theme_manager():
                         file.save(os.path.join(theme_path, 'fonts', filename))
                         asset_name = file_field.replace('upload_font_', '')
                         theme_config['assets'][asset_name] = f'fonts/{filename}'
-                        
+            
             # Save theme configuration
             with open(os.path.join(theme_path, 'theme.json'), 'w') as f:
                 json.dump(theme_config, f, indent=4)
@@ -271,33 +304,119 @@ def theme_manager():
         analytics_config=game_settings.analytics_config if hasattr(game_settings, 'analytics_config') else {}
     )
 
-@app.route('/analytics/download/<int:game_id>')
-def download_analytics(game_id):
-    """Download analytics data for a game as JSON"""
+@app.route('/analytics', methods=['GET', 'POST'])
+def analytics_config():
+    """Handle analytics configuration."""
+    if request.method == 'POST':
+        if hasattr(game_settings, 'analytics_config'):
+            # Update basic settings
+            game_settings.show_analytics_overlay = request.form.get('show_analytics_overlay', 'off') == 'on'
+            
+            # Update analytics configuration
+            analytics_config = game_settings.analytics_config
+            
+            # Data requirements
+            analytics_config['min_games_basic'] = int(request.form.get('min_games_basic', 30))
+            analytics_config['min_games_advanced'] = int(request.form.get('min_games_advanced', 300))
+            
+            # Time windows
+            analytics_config['momentum_window'] = int(request.form.get('momentum_window', 60))
+            analytics_config['quick_response_window'] = int(request.form.get('quick_response_window', 30))
+            analytics_config['scoring_run_threshold'] = int(request.form.get('scoring_run_threshold', 3))
+            
+            # Game analysis
+            analytics_config['critical_moment_threshold'] = float(request.form.get('critical_moment_threshold', 60.0))
+            analytics_config['close_game_threshold'] = int(request.form.get('close_game_threshold', 2))
+            
+            # Display settings
+            analytics_config['overlay_position'] = request.form.get('overlay_position', 'top-left')
+            analytics_config['overlay_opacity'] = float(request.form.get('overlay_opacity', 0.8))
+            analytics_config['show_predictions'] = request.form.get('show_predictions', 'off') == 'on'
+            analytics_config['show_patterns'] = request.form.get('show_patterns', 'off') == 'on'
+            analytics_config['show_momentum'] = request.form.get('show_momentum', 'off') == 'on'
+            
+            # Mode-specific settings
+            analytics_config['classic_mode']['show_analytics'] = request.form.get('classic_analytics', 'off') == 'on'
+            analytics_config['evolved_mode']['show_analytics'] = request.form.get('evolved_analytics', 'off') == 'on'
+            analytics_config['crazy_play_mode']['show_analytics'] = request.form.get('crazy_analytics', 'off') == 'on'
+            
+            game_settings.save_settings()
+            logging.info('Analytics configuration updated via web interface')
+            
+        return redirect(url_for('analytics_config'))
+        
+    return render_template(
+        'analytics_config.html',
+        settings=game_settings,
+        analytics_config=game_settings.analytics_config if hasattr(game_settings, 'analytics_config') else {}
+    )
+
+@app.route('/analytics/viewer')
+def analytics_viewer():
+    """Analytics viewer page."""
     if not game_instance or not game_instance.db:
-        return jsonify({'error': 'Database not initialized'})
+        return render_template('analytics_viewer.html', error='Database not initialized')
         
     try:
-        # Get all analytics data
-        analytics_history = game_instance.db.get_analytics_history(game_id)
-        scoring_patterns = game_instance.db.get_scoring_patterns(game_id)
-        game_stats = game_instance.db.get_game_stats(game_id)
+        # Get overview data
+        stats = game_instance.db.get_game_stats()
+        total_games = len(stats) if stats else 0
+        recent_games = len([s for s in stats if s['date_time'] >= '2024-01-01']) if stats else 0
         
-        data = {
-            'game_id': game_id,
-            'analytics_history': analytics_history,
-            'scoring_patterns': scoring_patterns,
-            'game_stats': game_stats,
-            'export_date': datetime.now().isoformat()
-        }
+        # Get win rates
+        win_rates = _calculate_win_rates(stats) if stats else None
         
-        return jsonify(data)
+        # Get pattern data
+        patterns = _get_pattern_analysis(stats) if stats else None
+        
+        # Get momentum data
+        momentum_data = _get_momentum_analysis(stats) if stats else None
+        
+        return render_template(
+            'analytics_viewer.html',
+            total_games=total_games,
+            recent_games=recent_games,
+            win_rates=win_rates,
+            patterns=patterns,
+            momentum_data=momentum_data,
+            current_game=game_instance.current_game_id if game_instance else None
+        )
     except Exception as e:
-        logging.error(f"Error exporting analytics data: {e}")
-        return jsonify({'error': 'Failed to export analytics data'})
+        logging.error(f"Error in analytics viewer: {e}")
+        return render_template('analytics_viewer.html', error=str(e))
+
+def _calculate_win_rates(stats):
+    """Calculate win rates from game statistics."""
+    if not stats:
+        return None
+        
+    total = len(stats)
+    red_wins = sum(1 for game in stats if game.get('winner_id') == game.get('player_red_id'))
+    blue_wins = sum(1 for game in stats if game.get('winner_id') == game.get('player_blue_id'))
+    
+    return {
+        'red': round(red_wins / total * 100, 1),
+        'blue': round(blue_wins / total * 100, 1),
+        'ties': round((total - red_wins - blue_wins) / total * 100, 1),
+        'total_games': total
+    }
+
+def _get_pattern_analysis(stats):
+    """Analyze scoring patterns from game statistics."""
+    if not stats or not game_instance:
+        return None
+        
+    return game_instance.analytics.pattern_analyzer.get_current_patterns()
+
+def _get_momentum_analysis(stats):
+    """Get momentum analysis from game statistics."""
+    if not stats or not game_instance:
+        return None
+        
+    return game_instance.analytics.momentum_tracker.get_momentum_analysis()
 
 def run_web_server(settings, game):
-    """Run the web server"""
+    """Run the web server."""
     global game_settings
     global game_instance
     game_settings = settings
