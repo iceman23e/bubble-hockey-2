@@ -29,7 +29,7 @@ class ClassicMode(BaseGameMode):
         self.show_analytics = self.settings.classic_mode_analytics
         self.analytics_overlay_position = 'top-right'  # Classic mode default position
 
-        # Initialize last goal time
+        # Initialize last goal time for analytics tracking
         self.last_goal_time = None
 
     def load_assets(self):
@@ -93,7 +93,7 @@ class ClassicMode(BaseGameMode):
         else:
             self.screen.fill(self.settings.bg_color)
 
-        # Draw base game elements (score, clock, etc.)
+        # Draw base game elements
         super().draw()
 
         # Draw classic mode specific elements
@@ -116,48 +116,71 @@ class ClassicMode(BaseGameMode):
         )
         self.screen.blit(period_text, period_rect)
 
+        # Draw analytics if enabled
+        if self.show_analytics and self.game.current_analysis:
+            self._draw_classic_analytics()
+
     def handle_goal(self, team):
         """Handle goal scoring in classic mode.
 
         Args:
             team (str): The team that scored ('red' or 'blue').
         """
-        # Call parent class goal handling first
-        super().handle_goal(team)
-
-        # Basic goal handling without combos or power-ups
+        # Record current time for analytics
+        current_time = datetime.now()
+        
+        # Basic goal handling
         logging.info(f"Goal scored in classic mode by team {team}")
 
-        # Record goal time for analytics
-        self.last_goal_time = datetime.now()
+        # Record goal time for analytics tracking
+        self.last_goal_time = current_time
+
+        # Call parent class goal handling
+        super().handle_goal(team)
 
         # Show simple goal notification
         self.active_event = "GOAL!"
 
-        # Play goal sound if available
+        # Play goal sound
         if self.game.sounds_enabled and self.game.sounds.get('goal'):
             self.game.sounds['goal'].play()
 
-        # Update analytics after goal
+        # Check for critical moments in analytics
         if self.game.current_analysis:
-            analysis = self.game.current_analysis
-            if analysis and analysis.get('is_critical_moment'):
-                self.handle_critical_moment(analysis)
+            self._check_critical_moments()
 
-    def handle_critical_moment(self, analysis):
-        """Handle critical moments in classic mode.
+    def _check_critical_moments(self):
+        """Check and handle critical game moments based on analytics."""
+        if not self.game.current_analysis.get('is_critical_moment'):
+            return
 
-        Args:
-            analysis (dict): The current analysis data from the analytics engine.
-        """
-        # In classic mode, only show critical moment alerts for:
-        # 1. Final minute in close game
-        # 2. Tie-breaking goals
         score_diff = abs(self.score['red'] - self.score['blue'])
+        
+        # Only show notifications for significant moments
         if self.clock <= 60 and score_diff <= 1:
-            self.active_event = "FINAL MINUTE - CLOSE GAME!"
-        elif score_diff == 1:
+            self.active_event = "FINAL MINUTE!"
+        elif (score_diff == 1 and 
+              self.period == self.max_periods and 
+              self.clock <= 120):
             self.active_event = "TIE BROKEN!"
+
+    def _draw_classic_analytics(self):
+        """Draw minimal analytics overlay for classic mode."""
+        if not self.game.current_analysis:
+            return
+
+        analysis = self.game.current_analysis
+        
+        # Only show win probability in top-right corner
+        if 'win_probability' in analysis:
+            x_pos = self.settings.screen_width - 180
+            y_pos = 10
+
+            prob = analysis['win_probability']
+            win_prob_text = f"Win Prob: R {prob['red']:.0%} B {prob['blue']:.0%}"
+            win_prob_surface = self.font_small.render(win_prob_text, True, (255, 255, 255))
+            win_prob_surface.set_alpha(180)  # Slightly transparent
+            self.screen.blit(win_prob_surface, (x_pos, y_pos))
 
     def handle_period_end(self):
         """Handle the end of a period in classic mode."""
@@ -195,28 +218,3 @@ class ClassicMode(BaseGameMode):
         self.background_image = None
         self.board_overlay = None
         logging.info("Classic mode cleanup completed")
-
-    def _draw_analytics_overlay(self):
-        """Override analytics overlay for classic mode - simplified version."""
-        if not self.show_analytics or not self.game.current_analysis:
-            return
-
-        analysis = self.game.current_analysis
-        x_pos = self.settings.screen_width - 180  # Classic mode fixed position
-        y_pos = 10
-
-        # Only show win probability in classic mode
-        if 'win_probability' in analysis:
-            prob = analysis['win_probability']
-            prob_text = "Win Probability:"
-            red_text = f"Red: {prob['red']:.1%}"
-            blue_text = f"Blue: {prob['blue']:.1%}"
-
-            text_surface = self.font_small.render(prob_text, True, (255, 255, 255))
-            self.screen.blit(text_surface, (x_pos, y_pos))
-
-            red_surface = self.font_small.render(red_text, True, (255, 0, 0))
-            self.screen.blit(red_surface, (x_pos, y_pos + 25))
-
-            blue_surface = self.font_small.render(blue_text, True, (0, 0, 255))
-            self.screen.blit(blue_surface, (x_pos, y_pos + 50))
