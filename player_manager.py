@@ -28,7 +28,21 @@ class PlayerManager:
             else:
                 self.last_match_players = (None, None)
         except Exception as e:
-            logging.error(f"Error loading last match data: {e}")
+            logging.error(f"Error loading last match data: {e    def cleanup(self) -> None:
+        """Clean up resources before exiting."""
+        # Store last match if we have selected players
+        if self.red_player and self.blue_player:
+            self.store_last_match()
+            
+        # Clear any error messages
+        self.error_messages = {"red": None, "blue": None}
+        
+        # Clear references
+        self.red_player = None
+        self.blue_player = None
+        self.screen = None  # Let pygame handle actual surface cleanup
+        
+        logging.info("PlayerManager cleanup complete")")
             self.last_match_players = (None, None)
         self.state = PlayerManagerState.PLAYER_SELECT
         self.red_player: Optional[Player] = None
@@ -136,10 +150,21 @@ class PlayerManager:
         self.list_offset = {"red": 0, "blue": 0}
         self.error_messages = {"red": None, "blue": None}
 
-    def _set_error(self, team: str, message: str) -> None:
-        """Set an error message for a team."""
-        self.error_messages[team] = message
-        self.error_times[team] = pygame.time.get_ticks()
+    def cleanup(self) -> None:
+        """Clean up resources before exiting."""
+        # Store last match if we have selected players
+        if self.red_player and self.blue_player:
+            self.store_last_match()
+            
+        # Clear any error messages
+        self.error_messages = {"red": None, "blue": None}
+        
+        # Clear references
+        self.red_player = None
+        self.blue_player = None
+        self.screen = None  # Let pygame handle actual surface cleanup
+        
+        logging.info("PlayerManager cleanup complete")
 
     def draw(self) -> None:
         """Draw the player management interface."""
@@ -226,11 +251,20 @@ class PlayerManager:
         self.screen.blit(stats_text, (box_rect.x + 10, box_rect.y + 55))
 
     def _draw_player_list(self, team: str, base_x: int) -> None:
-        """Draw the scrollable player list."""
+        """
+        Draw the scrollable player list.
+        
+        Args:
+            team: Which team's list to draw ('red' or 'blue')
+            base_x: Base x position for drawing
+            
+        Displays filtered players based on search text with proper scrolling
+        and highlighting for selected players.
+        """
         list_rect = pygame.Rect(
-            base_x + 20, 160,
+            base_x + 20, 200,  # Moved down to accommodate search bar
             (self.settings.screen_width // 2) - 40,
-            self.settings.screen_height - 200
+            self.settings.screen_height - 240  # Adjusted for new position
         )
         pygame.draw.rect(self.screen, (0, 0, 0), list_rect)
         
@@ -238,6 +272,15 @@ class PlayerManager:
         search = self.search_text[team]
         players = self._get_filtered_players(search)
         
+        if not players:
+            # Show "No players found" message
+            no_results_text = self.font_small.render(
+                "No players found", True, (128, 128, 128)
+            )
+            text_rect = no_results_text.get_rect(center=list_rect.center)
+            self.screen.blit(no_results_text, text_rect)
+            return
+            
         # Draw visible players
         y_pos = list_rect.y + 5
         offset = self.list_offset[team]
@@ -363,21 +406,31 @@ class PlayerManager:
         return [p for p in players if search in p.name.lower()]
 
     def handle_keyboard(self, event: pygame.event.Event) -> None:
-        """Handle keyboard events for search."""
-        if event.type != pygame.KEYDOWN:
-            return
-            
-        # Determine active side based on mouse position
+        """
+        Handle keyboard events for search.
+        
+        Args:
+            event: Pygame event to handle
+        
+        The currently focused side (red/blue) is determined by mouse position.
+        Handles both text input and special keys like backspace.
+        """
+        # Only process text input when a search bar is active
         mouse_pos = pygame.mouse.get_pos()
         team = "red" if mouse_pos[0] < self.settings.screen_width // 2 else "blue"
         
-        # Handle backspace
-        if event.key == pygame.K_BACKSPACE:
-            self.search_text[team] = self.search_text[team][:-1]
-            self.list_offset[team] = 0  # Reset scroll position
-            return
-            
-        # Add character to search if printable
-        if event.unicode.isprintable():
-            self.search_text[team] += event.unicode
-            self.list_offset[team] = 0  # Reset scroll position
+        if event.type == pygame.KEYDOWN:
+            # Handle backspace
+            if event.key == pygame.K_BACKSPACE:
+                self.search_text[team] = self.search_text[team][:-1]
+                self.list_offset[team] = 0  # Reset scroll position
+            # Handle escape to clear search
+            elif event.key == pygame.K_ESCAPE:
+                self.search_text[team] = ""
+                self.list_offset[team] = 0
+        
+        # Handle regular text input
+        elif event.type == pygame.TEXTINPUT:
+            if len(self.search_text[team]) < 20:  # Limit search text length
+                self.search_text[team] += event.text
+                self.list_offset[team] = 0  # Reset scroll position
