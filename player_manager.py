@@ -12,9 +12,23 @@ class PlayerManagerState(Enum):
     VIEW_ACHIEVEMENTS = "achievements"
 
 class PlayerManager:
-    def __init__(self, screen, settings):
+    def __init__(self, screen, settings, player_db, game):
         self.screen = screen
         self.settings = settings
+        self.player_db = player_db
+        self.game = game
+
+        # Load last match data if available
+        try:
+            if os.path.exists('last_match.json'):
+                with open('last_match.json', 'r') as f:
+                    data = json.load(f)
+                    self.last_match_players = (data.get('red_id'), data.get('blue_id'))
+            else:
+                self.last_match_players = (None, None)
+        except Exception as e:
+            logging.error(f"Error loading last match data: {e}")
+            self.last_match_players = (None, None)
         self.state = PlayerManagerState.PLAYER_SELECT
         self.red_player: Optional[Player] = None
         self.blue_player: Optional[Player] = None
@@ -85,9 +99,19 @@ class PlayerManager:
         return bool(self.red_player and self.blue_player)
 
     def store_last_match(self) -> None:
-        """Store the current players as last match players."""
+        """Store the current players as last match players and save to file."""
         if self.red_player and self.blue_player:
             self.last_match_players = (self.red_player.id, self.blue_player.id)
+            try:
+                with open('last_match.json', 'w') as f:
+                    json.dump({
+                        'red_id': self.red_player.id,
+                        'blue_id': self.blue_player.id,
+                        'timestamp': datetime.now().isoformat()
+                    }, f)
+                logging.info("Last match data saved successfully")
+            except Exception as e:
+                logging.error(f"Error saving last match data: {e}")
 
     def load_last_match_players(self) -> bool:
         """Load the players from the last match."""
