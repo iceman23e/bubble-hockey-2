@@ -3,13 +3,14 @@
 from typing import Optional, List, Tuple, Dict
 import pygame
 import logging
+import json
+import os
+from datetime import datetime
 from enum import Enum
+from typing import Optional, Dict, List, Tuple
 
 class PlayerManagerState(Enum):
-    PLAYER_SELECT = "select"  # Both players select simultaneously
-    VIEW_STATS = "stats"
-    VIEW_RANKINGS = "rankings"
-    VIEW_ACHIEVEMENTS = "achievements"
+    PLAYER_SELECT = "select"  # Only state we need for now - player selection
 
 class PlayerManager:
     def __init__(self, screen, settings, player_db, game):
