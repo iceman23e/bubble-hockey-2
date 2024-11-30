@@ -17,92 +17,21 @@ class Menu:
         self.selected_mode = None
         self.selected_theme = None
         self.state = 'select_mode'  # 'select_mode', 'select_theme', 'analytics_config', or 'analytics_viewer'
+        
         # Update notification flag
         self.update_available = False
         self.check_for_updates()
+        
         # Timer for volcano animation
         self.volcano_animation_timer = 0
         self.volcano_frame = 0
         self.animation_interval = 100  # Milliseconds between frames
-        # Initialize click handlers
+        
+        # Register touch zones
         self.register_touch_zones()
 
-    def register_touch_zones(self):
-        """Register touch zones for both screens."""
-        for screen in ['red', 'blue']:
-            # Main menu buttons
-            self.screen_manager.register_touch_zone(screen, 'classic', self.classic_button_rect, self.handle_button_click)
-            self.screen_manager.register_touch_zone(screen, 'evolved', self.evolved_button_rect, self.handle_button_click)
-            self.screen_manager.register_touch_zone(screen, 'crazy_play', self.crazy_play_button_rect, self.handle_button_click)
-            self.screen_manager.register_touch_zone(screen, 'analytics_config', self.analytics_config_button_rect, self.handle_button_click)
-            self.screen_manager.register_touch_zone(screen, 'analytics_viewer', self.analytics_viewer_button_rect, self.handle_button_click)
-            self.screen_manager.register_touch_zone(screen, 'check_updates', self.check_updates_button_rect, self.handle_button_click)
-            self.screen_manager.register_touch_zone(screen, 'exit', self.exit_button_rect, self.handle_button_click)
-            # Back button
-            self.screen_manager.register_touch_zone(screen, 'back', self.back_button_rect, self.handle_button_click)
-
-    def handle_button_click(self, screen, pos):
-        """Handle button clicks from either screen."""
-        if self.state == 'select_mode':
-            self.handle_mode_selection(screen, pos)
-        elif self.state == 'select_theme':
-            self.handle_theme_selection(screen, pos)
-        elif self.state in ['analytics_config', 'analytics_viewer']:
-            self.handle_analytics_selection(screen, pos)
-
-    def handle_mode_selection(self, screen, pos):
-        if self.classic_button_rect.collidepoint(pos):
-            self.sounds['button_click'].play()
-            self.selected_mode = 'classic'
-            if self.settings.classic_mode_theme_selection:
-                self.state = 'select_theme'
-                self.init_theme_buttons()
-            else:
-                self.start_game = True
-        elif self.evolved_button_rect.collidepoint(pos):
-            self.sounds['button_click'].play()
-            self.selected_mode = 'evolved'
-            self.state = 'select_theme'
-            self.init_theme_buttons()
-        elif self.crazy_play_button_rect.collidepoint(pos):
-            self.sounds['button_click'].play()
-            self.selected_mode = 'crazy_play'
-            self.state = 'select_theme'
-            self.init_theme_buttons()
-        elif self.analytics_config_button_rect.collidepoint(pos):
-            self.sounds['button_click'].play()
-            self.state = 'analytics_config'
-        elif self.analytics_viewer_button_rect.collidepoint(pos):
-            self.sounds['button_click'].play()
-            self.state = 'analytics_viewer'
-        elif self.check_updates_button_rect.collidepoint(pos):
-            self.sounds['button_click'].play()
-            self.initiate_update()
-        elif self.exit_button_rect.collidepoint(pos):
-            self.sounds['button_click'].play()
-            pygame.quit()
-            sys.exit()
-
-    def handle_theme_selection(self, screen, pos):
-        if self.back_button_rect.collidepoint(pos):
-            self.sounds['button_click'].play()
-            self.state = 'select_mode'
-            self.selected_mode = None
-        else:
-            for idx, rect in enumerate(self.theme_button_rects):
-                if rect.collidepoint(pos):
-                    self.sounds['button_click'].play()
-                    self.selected_theme = self.available_themes[idx]
-                    self.start_game = True
-                    break
-
-    def handle_analytics_selection(self, screen, pos):
-        if self.back_button_rect.collidepoint(pos):
-            self.sounds['button_click'].play()
-            self.state = 'select_mode'
-
     def load_assets(self):
-        """Load all necessary assets."""
+        """Load all assets needed for the menu."""
         # Load fonts
         self.font_title = pygame.font.Font('assets/fonts/PressStart2P-Regular.ttf', 36)
         self.font_small = pygame.font.Font('assets/fonts/PressStart2P-Regular.ttf', 20)
@@ -121,59 +50,133 @@ class Menu:
         # Load available themes
         self.available_themes = self.load_available_themes()
 
-    def init_menu(self):
-        """Initialize menu elements."""
-        # Same initialization as before, but store render results
-        self._init_button_text()
-        self._init_button_rects()
+    def register_touch_zones(self):
+        """Register touch zones for both screens."""
+        for screen in ['red', 'blue']:
+            start_y = 120
+            spacing = 60
+            
+            # Main menu buttons
+            if self.state == 'select_mode':
+                self.screen_manager.register_touch_zone(
+                    screen, 'classic',
+                    pygame.Rect(0, start_y - 20, self.settings.screen_width, 40),
+                    self.handle_button_click
+                )
+                self.screen_manager.register_touch_zone(
+                    screen, 'evolved',
+                    pygame.Rect(0, start_y + spacing - 20, self.settings.screen_width, 40),
+                    self.handle_button_click
+                )
+                self.screen_manager.register_touch_zone(
+                    screen, 'crazy_play',
+                    pygame.Rect(0, start_y + spacing * 2 - 20, self.settings.screen_width, 40),
+                    self.handle_button_click
+                )
+                self.screen_manager.register_touch_zone(
+                    screen, 'analytics_config',
+                    pygame.Rect(0, start_y + spacing * 3 - 20, self.settings.screen_width, 40),
+                    self.handle_button_click
+                )
+                self.screen_manager.register_touch_zone(
+                    screen, 'analytics_viewer',
+                    pygame.Rect(0, start_y + spacing * 4 - 20, self.settings.screen_width, 40),
+                    self.handle_button_click
+                )
+                self.screen_manager.register_touch_zone(
+                    screen, 'check_updates',
+                    pygame.Rect(0, start_y + spacing * 5 - 20, self.settings.screen_width, 40),
+                    self.handle_button_click
+                )
+                self.screen_manager.register_touch_zone(
+                    screen, 'exit',
+                    pygame.Rect(0, start_y + spacing * 6 - 20, self.settings.screen_width, 40),
+                    self.handle_button_click
+                )
 
-    def _init_button_text(self):
-        """Initialize all button text renders."""
-        # Create menu buttons
-        self.classic_button_text = self.font_title.render('1. CLASSIC', True, (255, 140, 0))
-        self.evolved_button_text = self.font_title.render('2. EVOLVED', True, (255, 140, 0))
-        self.crazy_play_button_text = self.font_title.render('3. CRAZY PLAY', True, (255, 140, 0))
-        self.analytics_config_button_text = self.font_title.render('Analytics Config', True, (255, 140, 0))
-        self.analytics_viewer_button_text = self.font_title.render('Analytics Viewer', True, (255, 140, 0))
-        self.check_updates_button_text = self.font_title.render('Check for Updates', True, (255, 140, 0))
-        self.exit_button_text = self.font_title.render('Exit', True, (255, 140, 0))
-        self.back_button_text = self.font_title.render('Back', True, (255, 140, 0))
+            # Back button for non-main states
+            if self.state != 'select_mode':
+                self.screen_manager.register_touch_zone(
+                    screen, 'back',
+                    pygame.Rect(0, self.settings.screen_height - 70, self.settings.screen_width, 40),
+                    self.handle_button_click
+                )
 
-    def _init_button_rects(self):
-        """Initialize button rectangles for all screens."""
-        # Calculate vertical spacing
-        start_y = 120
-        spacing = 60
+    def handle_button_click(self, screen, pos):
+        """Handle button click events."""
+        # Play click sound
+        if self.sounds['button_click']:
+            self.sounds['button_click'].play()
 
-        # Button rectangles for detecting clicks
-        self.classic_button_rect = self.classic_button_text.get_rect(
-            center=(self.settings.screen_width // 2, start_y)
-        )
-        self.evolved_button_rect = self.evolved_button_text.get_rect(
-            center=(self.settings.screen_width // 2, start_y + spacing)
-        )
-        self.crazy_play_button_rect = self.crazy_play_button_text.get_rect(
-            center=(self.settings.screen_width // 2, start_y + spacing * 2)
-        )
-        self.analytics_config_button_rect = self.analytics_config_button_text.get_rect(
-            center=(self.settings.screen_width // 2, start_y + spacing * 3)
-        )
-        self.analytics_viewer_button_rect = self.analytics_viewer_button_text.get_rect(
-            center=(self.settings.screen_width // 2, start_y + spacing * 4)
-        )
-        self.check_updates_button_rect = self.check_updates_button_text.get_rect(
-            center=(self.settings.screen_width // 2, start_y + spacing * 5)
-        )
-        self.exit_button_rect = self.exit_button_text.get_rect(
-            center=(self.settings.screen_width // 2, start_y + spacing * 6)
-        )
-        self.back_button_rect = self.back_button_text.get_rect(
-            center=(self.settings.screen_width // 2, self.settings.screen_height - 50)
-        )
+        # Get the zone that was clicked from the event data
+        zone_id = None
+        for zone in self.screen_manager.active_touch_zones[screen].values():
+            if zone['rect'].collidepoint(pos):
+                zone_id = next(key for key, value in self.screen_manager.active_touch_zones[screen].items() 
+                             if value == zone)
+                break
 
-        # Theme selection buttons will be initialized when needed
-        self.theme_buttons = []
-        self.theme_button_rects = []
+        if not zone_id:
+            return
+
+        # Handle the click based on the zone
+        if zone_id == 'classic':
+            self.selected_mode = 'classic'
+            if self.settings.classic_mode_theme_selection:
+                self.state = 'select_theme'
+                self.init_theme_buttons()
+            else:
+                self.start_game = True
+        elif zone_id == 'evolved':
+            self.selected_mode = 'evolved'
+            self.state = 'select_theme'
+            self.init_theme_buttons()
+        elif zone_id == 'crazy_play':
+            self.selected_mode = 'crazy_play'
+            self.state = 'select_theme'
+            self.init_theme_buttons()
+        elif zone_id == 'analytics_config':
+            self.state = 'analytics_config'
+        elif zone_id == 'analytics_viewer':
+            self.state = 'analytics_viewer'
+        elif zone_id == 'check_updates':
+            self.initiate_update()
+        elif zone_id == 'exit':
+            pygame.quit()
+            sys.exit()
+        elif zone_id == 'back':
+            self.state = 'select_mode'
+            self.selected_mode = None
+        elif zone_id.startswith('theme_'):
+            theme_idx = int(zone_id.split('_')[1])
+            if 0 <= theme_idx < len(self.available_themes):
+                self.selected_theme = self.available_themes[theme_idx]
+                self.start_game = True
+
+        # Re-register touch zones for new state
+        self.register_touch_zones()
+
+    def load_available_themes(self):
+        """Load available themes from themes directory."""
+        themes_dir = 'assets/themes/'
+        themes = [d for d in os.listdir(themes_dir) if os.path.isdir(os.path.join(themes_dir, d))]
+        return themes
+
+    def init_theme_buttons(self):
+        """Initialize theme selection buttons."""
+        y_start = 150
+        y_offset = 70
+        
+        # Register touch zones for theme buttons
+        for idx, theme in enumerate(self.available_themes):
+            for screen in ['red', 'blue']:
+                self.screen_manager.register_touch_zone(
+                    screen,
+                    f'theme_{idx}',
+                    pygame.Rect(0, y_start + idx * y_offset - 20, 
+                              self.settings.screen_width, 40),
+                    self.handle_button_click
+                )
 
     def update(self):
         """Update menu state."""
@@ -186,11 +189,9 @@ class Menu:
     def draw(self):
         """Draw menu on both screens."""
         for screen in ['red', 'blue']:
-            # Clear screen
-            self.screen_manager.clear_screen(screen)
             current_screen = self.screen_manager.get_screen(screen)
-
-            # Draw volcano animation
+            
+            # Draw volcano animation background
             volcano_frame_image = self.images['volcano_eruption_frames'][self.volcano_frame]
             current_screen.blit(volcano_frame_image, (0, 0))
 
@@ -210,47 +211,70 @@ class Menu:
 
             # Draw back button for non-main states
             if self.state != 'select_mode':
-                current_screen.blit(self.back_button_text, self.back_button_rect)
+                self._draw_back_button(current_screen)
 
             # Update the display
             self.screen_manager.update_display(screen)
 
     def _draw_mode_selection(self, screen):
-        """Draw mode selection menu on specified screen."""
+        """Draw mode selection menu."""
+        start_y = 120
+        spacing = 60
+
         # Draw menu buttons
-        screen.blit(self.classic_button_text, self.classic_button_rect)
-        screen.blit(self.evolved_button_text, self.evolved_button_rect)
-        screen.blit(self.crazy_play_button_text, self.crazy_play_button_rect)
-        screen.blit(self.analytics_config_button_text, self.analytics_config_button_rect)
-        screen.blit(self.analytics_viewer_button_text, self.analytics_viewer_button_rect)
-        screen.blit(self.check_updates_button_text, self.check_updates_button_rect)
-        screen.blit(self.exit_button_text, self.exit_button_rect)
+        buttons = [
+            ('1. CLASSIC', self.selected_mode == 'classic'),
+            ('2. EVOLVED', self.selected_mode == 'evolved'),
+            ('3. CRAZY PLAY', self.selected_mode == 'crazy_play'),
+            ('Analytics Config', False),
+            ('Analytics Viewer', False),
+            ('Check for Updates', False),
+            ('Exit', False)
+        ]
+
+        for i, (text, selected) in enumerate(buttons):
+            color = (255, 255, 0) if selected else (255, 140, 0)
+            text_surface = self.font_title.render(text, True, color)
+            text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, start_y + spacing * i))
+            screen.blit(text_surface, text_rect)
 
         # Display update notification if available
         if self.update_available:
             update_text = "Update Available!"
             update_surface = self.font_small.render(update_text, True, (255, 0, 0))
-            update_rect = update_surface.get_rect(center=(self.settings.screen_width // 2, 120))
+            update_rect = update_surface.get_rect(center=(self.settings.screen_width // 2, 90))
             screen.blit(update_surface, update_rect)
 
-    # ... [Rest of the Menu class methods remain the same, just update screen references] ...
-    
-    def handle_event(self, event):
-        """Legacy event handler for compatibility."""
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE and self.state != 'select_mode':
-                self.state = 'select_mode'
-                self.selected_mode = None
-                self.sounds['button_click'].play()
+    def _draw_theme_selection(self, screen):
+        """Draw theme selection screen."""
+        # Draw section title
+        title_text = self.font_title.render('SELECT THEME', True, (255, 140, 0))
+        title_rect = title_text.get_rect(center=(self.settings.screen_width // 2, 80))
+        screen.blit(title_text, title_rect)
+
+        # Draw theme buttons
+        y_start = 150
+        y_offset = 70
+        for idx, theme in enumerate(self.available_themes):
+            color = (255, 255, 0) if self.selected_theme == theme else (255, 140, 0)
+            theme_text = self.font_title.render(f"{idx + 1}. {theme.upper()}", True, color)
+            theme_rect = theme_text.get_rect(center=(self.settings.screen_width // 2, y_start + idx * y_offset))
+            screen.blit(theme_text, theme_rect)
+
+    def _draw_back_button(self, screen):
+        """Draw back button."""
+        text = self.font_title.render('Back', True, (255, 140, 0))
+        rect = text.get_rect(center=(self.settings.screen_width // 2, self.settings.screen_height - 50))
+        screen.blit(text, rect)
 
     def _draw_analytics_config(self, screen):
-        """Draw the analytics configuration screen on specified screen."""
+        """Draw analytics configuration screen."""
         # Draw section title
         title_text = self.font_title.render('ANALYTICS CONFIGURATION', True, (255, 140, 0))
         title_rect = title_text.get_rect(center=(self.settings.screen_width // 2, 80))
         screen.blit(title_text, title_rect)
 
-        # Draw main settings
+        # Draw settings
         y_pos = 150
         settings_to_display = [
             ('Show Analytics Overlay', self.settings.show_analytics_overlay),
@@ -258,7 +282,8 @@ class Menu:
             ('Min Games (Basic)', self.settings.analytics_config['min_games_basic']),
             ('Min Games (Advanced)', self.settings.analytics_config['min_games_advanced']),
             ('Momentum Window', f"{self.settings.analytics_config['momentum_window']}s"),
-            ('Critical Moment Threshold', f"{self.settings.analytics_config['critical_moment_threshold']}s")
+            ('Critical Moment Threshold', 
+             f"{self.settings.analytics_config['critical_moment_threshold']}s")
         ]
 
         for setting, value in settings_to_display:
@@ -267,7 +292,7 @@ class Menu:
             screen.blit(text, rect)
             y_pos += 40
 
-        # Note: Actual configuration is handled through the web interface
+        # Draw web interface note
         web_note = self.font_small.render(
             "For detailed configuration, use the web interface", 
             True, 
@@ -277,91 +302,23 @@ class Menu:
         screen.blit(web_note, web_note_rect)
 
     def _draw_analytics_viewer(self, screen):
-        """Draw the analytics viewer screen on specified screen."""
+        """Draw analytics viewer screen."""
         # Draw section title
         title_text = self.font_title.render('ANALYTICS VIEWER', True, (255, 140, 0))
         title_rect = title_text.get_rect(center=(self.settings.screen_width // 2, 80))
         screen.blit(title_text, title_rect)
 
-        # Draw overview section
-        y_pos = 150
-        if hasattr(self, 'game') and hasattr(self.game, 'db'):
-            stats = self.game.db.get_game_stats()
-            total_games = len(stats) if stats else 0
-            
-            overview_data = [
-                ('Total Games Played', total_games),
-                ('Recent Games', len([s for s in stats if s['date_time'] >= '2024-01-01']) if stats else 0)
-            ]
-
-            for label, value in overview_data:
-                text = self.font_small.render(f"{label}: {value}", True, (255, 255, 255))
-                rect = text.get_rect(midleft=(self.settings.screen_width // 4, y_pos))
-                screen.blit(text, rect)
-                y_pos += 40
-
-            # Draw web interface note
-            web_note = self.font_small.render(
-                "For detailed analytics, use the web interface", 
-                True, 
-                (255, 140, 0)
-            )
-            web_note_rect = web_note.get_rect(center=(self.settings.screen_width // 2, y_pos + 40))
-            screen.blit(web_note, web_note_rect)
-        else:
-            no_data_text = self.font_small.render(
-                "No analytics data available", 
-                True, 
-                (255, 255, 255)
-            )
-            no_data_rect = no_data_text.get_rect(center=(self.settings.screen_width // 2, 200))
-            screen.blit(no_data_text, no_data_rect)
-
-    def _draw_theme_selection(self, screen):
-        """Draw the theme selection screen on specified screen."""
-        # Clear the screen
-        screen.fill((0, 0, 0))
-        
-        # Draw title
-        title_text = self.font_title.render('SELECT THEME', True, (255, 140, 0))
-        title_rect = title_text.get_rect(center=(self.settings.screen_width // 2, 80))
-        screen.blit(title_text, title_rect)
-        
-        # Draw theme buttons
-        for theme_text, theme_rect in zip(self.theme_buttons, self.theme_button_rects):
-            screen.blit(theme_text, theme_rect)
-
-    def init_theme_buttons(self):
-        """Initialize theme selection buttons."""
-        self.theme_buttons = []
-        self.theme_button_rects = []
-        y_start = 150
-        y_offset = 70
-        
-        for idx, theme in enumerate(self.available_themes):
-            theme_text = self.font_title.render(f"{idx + 1}. {theme.upper()}", True, (255, 140, 0))
-            theme_rect = theme_text.get_rect(center=(self.settings.screen_width // 2, y_start + idx * y_offset))
-            self.theme_buttons.append(theme_text)
-            self.theme_button_rects.append(theme_rect)
-            
-            # Register touch zones for theme buttons
-            for screen in ['red', 'blue']:
-                self.screen_manager.register_touch_zone(
-                    screen,
-                    f'theme_{idx}',
-                    theme_rect,
-                    self.handle_button_click,
-                    active=(self.state == 'select_theme')
-                )
-
-    def load_available_themes(self):
-        """Load available themes from themes directory."""
-        themes_dir = 'assets/themes/'
-        themes = [d for d in os.listdir(themes_dir) if os.path.isdir(os.path.join(themes_dir, d))]
-        return themes
+        # Draw web interface note
+        web_note = self.font_small.render(
+            "For detailed analytics, use the web interface", 
+            True, 
+            (255, 140, 0)
+        )
+        web_note_rect = web_note.get_rect(center=(self.settings.screen_width // 2, 150))
+        screen.blit(web_note, web_note_rect)
 
     def check_for_updates(self):
-        """Check if an update is available by looking for the flag file."""
+        """Check if an update is available."""
         if os.path.exists('update_available.flag'):
             self.update_available = True
             logging.info('Update available.')
@@ -369,15 +326,16 @@ class Menu:
             self.update_available = False
 
     def initiate_update(self):
-        """Initiate the update process."""
+        """Start the update process."""
         logging.info('User initiated update from menu.')
         
         # Display updating message on both screens
         updating_text = "Updating... Please wait."
         text_surface = self.font_title.render(updating_text, True, (255, 255, 255))
-        text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, self.settings.screen_height // 2))
-        
-        for screen in ['red', 'blue']:
+        text_rect = text_surface.get_rect(center=(self.settings.screen_width // 2, 
+                                                self.settings.screen_height // 2))
+
+    for screen in ['red', 'blue']:
             current_screen = self.screen_manager.get_screen(screen)
             current_screen.fill((0, 0, 0))
             current_screen.blit(text_surface, text_rect)
@@ -400,7 +358,8 @@ class Menu:
             # Display error message on both screens
             error_text = "Update failed. Check logs."
             error_surface = self.font_small.render(error_text, True, (255, 0, 0))
-            error_rect = error_surface.get_rect(center=(self.settings.screen_width // 2, self.settings.screen_height // 2 + 50))
+            error_rect = error_surface.get_rect(center=(self.settings.screen_width // 2, 
+                                                      self.settings.screen_height // 2 + 50))
             
             for screen in ['red', 'blue']:
                 current_screen = self.screen_manager.get_screen(screen)
@@ -415,13 +374,24 @@ class Menu:
         pygame.quit()
         os.execv(sys.executable, ['python3'] + sys.argv)
 
+    def handle_event(self, event):
+        """Legacy event handler for compatibility with main game loop."""
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE and self.state != 'select_mode':
+                if self.sounds['button_click']:
+                    self.sounds['button_click'].play()
+                self.state = 'select_mode'
+                self.selected_mode = None
+                # Re-register touch zones for new state
+                self.register_touch_zones()
+
     def reset(self):
         """Reset menu state."""
         self.start_game = False
         self.selected_mode = None
         self.selected_theme = None
         self.state = 'select_mode'
-        # Re-register touch zones
+        # Re-register touch zones for main menu
         self.register_touch_zones()
         # Check for updates
         self.check_for_updates()
